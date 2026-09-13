@@ -1,0 +1,45 @@
+.asistente-input {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 15px;
+  background-color: #2d2d2d;
+  color: #fff;
+  border: 1px solid #555;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.asistente-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.asistente-ficha {
+  background-color: #2d2d2d;
+  padding: 12px;
+  border-radius: 5px;
+  border-left: 4px solid #007acc;
+}
+
+.asistente-categoria {
+  font-size: 11px;
+  background-color: #007acc;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.asistente-ficha h4 {
+  margin: 8px 0 4px 0;
+}
+
+.asistente-ficha p {
+  margin: 0;
+  color: #ccc;
+  font-size: 14px;
+}
+
+.asistente-vacio {
+  color: #888;
+}

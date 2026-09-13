@@ -1,0 +1,16 @@
+:root {
+  color-scheme: dark;
+  font: 16px/145% system-ui, 'Segoe UI', Roboto, sans-serif;
+}
+
+body {
+  margin: 0;
+  background-color: #141414;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+  padding: 24px 12px;
+  box-sizing: border-box;
+}
