@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { baseConocimiento } from '../data/procedimientos';
+import ManualesPDF from './ManualesPDF';
 import './AsistenteManuales.css';
 
 export default function AsistenteManuales() {
@@ -40,6 +41,8 @@ export default function AsistenteManuales() {
           <p className="asistente-vacio">No se encontraron coincidencias en los manuales indexados.</p>
         )}
       </div>
+
+      <ManualesPDF />
     </div>
   );
 }
