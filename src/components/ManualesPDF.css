@@ -23,6 +23,7 @@
 .manuales-error {
   color: #ff6b6b;
   font-size: 13px;
+  white-space: pre-line;
 }
 
 .manuales-lista {

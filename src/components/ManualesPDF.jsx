@@ -25,9 +25,10 @@ export default function ManualesPDF() {
   async function subirArchivos(files) {
     setSubiendo(true);
     setError('');
-    try {
-      for (const file of files) {
-        if (file.type !== 'application/pdf') continue;
+    const errores = [];
+    for (const file of files) {
+      if (file.type !== 'application/pdf') continue;
+      try {
         const buffer = await file.arrayBuffer();
         const paginas = await extraerTextoPDF(buffer);
         const manual = {
@@ -40,13 +41,14 @@ export default function ManualesPDF() {
         };
         await guardarManual(manual);
         setManuales((prev) => [...prev, manual]);
+      } catch (e) {
+        console.error(`Error procesando ${file.name}:`, e);
+        errores.push(`${file.name}: ${e?.message || 'error desconocido'}`);
       }
-    } catch {
-      setError('Error al procesar uno o más PDF. Verifique que sean documentos válidos.');
-    } finally {
-      setSubiendo(false);
-      if (inputRef.current) inputRef.current.value = '';
     }
+    setError(errores.length ? `No se pudieron procesar algunos PDF:\n${errores.join('\n')}` : '');
+    setSubiendo(false);
+    if (inputRef.current) inputRef.current.value = '';
   }
 
   async function borrar(id) {
