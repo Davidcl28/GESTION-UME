@@ -51,24 +51,37 @@ export function perdidaCargaManguera(caudalLMin, longitudM, coeficiente) {
 }
 
 // Resuelve el punto de trabajo real (caudal estable en l/min) de un equipo
-// dado un desnivel geométrico, una longitud de manguera y un diámetro,
-// mediante iteración de punto fijo: la pérdida depende del caudal, y el
-// caudal depende de la altura manométrica total (desnivel + pérdida).
+// dado un desnivel geométrico, una longitud de manguera y un diámetro: la
+// pérdida de carga depende del caudal, y el caudal que da la bomba depende a
+// su vez de la altura manométrica total (desnivel + pérdida), así que hay que
+// encontrar el punto donde ambas curvas se cruzan. Se resuelve por bisección
+// sobre f(Q) = (desnivel + pérdida(Q)) - alturaBomba(Q), que es monótona
+// creciente en Q (la pérdida sube con el caudal, la altura de la bomba baja),
+// por lo que siempre converge a la única solución — a diferencia de una
+// iteración de punto fijo directa, que puede oscilar sin converger cuando la
+// pérdida de carga inicial estimada es muy superior a la altura máxima de la
+// bomba (típico con curvas de un solo punto, como los circuitos de alta
+// presión de algunas autobombas).
 export function estimarPuntoTrabajo({ curva, desnivelM, longitudManguera, coeficienteManguera, densidadRelativa = 1 }) {
-  let caudal = interpolarCaudal(curva, desnivelM);
+  const { H0, k } = ajustarCurvaCuadratica(curva);
 
-  for (let i = 0; i < 25; i++) {
-    const perdida = perdidaCargaManguera(caudal, longitudManguera, coeficienteManguera) * densidadRelativa;
-    const alturaTotal = desnivelM + perdida;
-    const nuevoCaudal = interpolarCaudal(curva, alturaTotal);
-    if (Math.abs(nuevoCaudal - caudal) < 1) {
-      caudal = nuevoCaudal;
-      break;
+  const alturaBomba = (Q) => Math.max(H0 - k * Q * Q, 0);
+  const perdida = (Q) => perdidaCargaManguera(Q, longitudManguera, coeficienteManguera) * densidadRelativa;
+  const f = (Q) => desnivelM + perdida(Q) - alturaBomba(Q);
+
+  let caudal = 0;
+  if (desnivelM < H0 && f(0) < 0) {
+    let lo = 0;
+    let hi = Math.sqrt(H0 / k); // caudal a altura manométrica 0 (cota superior)
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (f(mid) > 0) hi = mid;
+      else lo = mid;
     }
-    caudal = nuevoCaudal;
+    caudal = (lo + hi) / 2;
   }
 
-  const perdidaFinal = perdidaCargaManguera(caudal, longitudManguera, coeficienteManguera) * densidadRelativa;
+  const perdidaFinal = perdida(caudal);
   return {
     caudalLMin: Math.round(caudal),
     alturaManometricaTotal: Math.round((desnivelM + perdidaFinal) * 10) / 10,

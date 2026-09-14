@@ -15,6 +15,7 @@ export default function CalculadoraHidraulica() {
   const [alturaImpulsion, setAlturaImpulsion] = useState(7);
   const [longitudManguera, setLongitudManguera] = useState(40);
   const [diametroId, setDiametroId] = useState(catalogoMedios[0].diametrosDisponibles[0]);
+  const [circuitoId, setCircuitoId] = useState(catalogoMedios[0].circuitos?.[0]?.id ?? null);
   const [densidad, setDensidad] = useState(1.0);
 
   const medio = useMemo(() => catalogoMedios.find((m) => m.id === medioId), [medioId]);
@@ -23,13 +24,20 @@ export default function CalculadoraHidraulica() {
     () => diametrosDelEquipo.find((d) => d.id === diametroId) || diametrosDelEquipo[0],
     [diametrosDelEquipo, diametroId]
   );
+  const circuito = useMemo(
+    () => medio.circuitos?.find((c) => c.id === circuitoId) || medio.circuitos?.[0] || null,
+    [medio, circuitoId]
+  );
+  const curvaActiva = circuito ? circuito.curva : medio.curva;
 
   // Al cambiar de equipo, se selecciona automáticamente el primer racor real
-  // disponible para ese equipo (los diámetros no son los mismos para todos).
+  // y el primer circuito de presión disponibles para ese equipo (no todos
+  // los equipos tienen los mismos, ni todos tienen varios circuitos).
   function cambiarMedio(nuevoMedioId) {
     setMedioId(nuevoMedioId);
     const nuevoMedio = catalogoMedios.find((m) => m.id === nuevoMedioId);
     setDiametroId(diametrosDeEquipo(nuevoMedio)[0].id);
+    setCircuitoId(nuevoMedio.circuitos?.[0]?.id ?? null);
   }
 
   const desnivelTotal = (Number(alturaSuccion) || 0) + (Number(alturaImpulsion) || 0);
@@ -37,13 +45,13 @@ export default function CalculadoraHidraulica() {
   const resultado = useMemo(
     () =>
       estimarPuntoTrabajo({
-        curva: medio.curva,
+        curva: curvaActiva,
         desnivelM: desnivelTotal,
         longitudManguera: Number(longitudManguera) || 0,
         coeficienteManguera: diametro.coeficiente,
         densidadRelativa: Number(densidad) || 1,
       }),
-    [medio, desnivelTotal, longitudManguera, diametro, densidad]
+    [curvaActiva, desnivelTotal, longitudManguera, diametro, densidad]
   );
 
   // La succión es un límite físico (presión atmosférica), no de potencia de la
@@ -75,6 +83,23 @@ export default function CalculadoraHidraulica() {
               </option>
             ))}
           </select>
+
+          {medio.circuitos && (
+            <>
+              <label>Circuito / modo de presión</label>
+              <select value={circuitoId} onChange={(e) => setCircuitoId(e.target.value)}>
+                {medio.circuitos.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
+              <p className="calc-hint">
+                Este equipo tiene dos cuerpos de bomba independientes y seleccionables en cabina:
+                no se pueden combinar. Elija el circuito que va a usar realmente.
+              </p>
+            </>
+          )}
 
           <p className="calc-hint">
             Rellene las dos si aplican: se suman. Si la bomba está sumergida en el agua, succión =

@@ -19,6 +19,7 @@ export default function TiempoVaciado() {
   const [desnivel, setDesnivel] = useState(2);
   const [longitudManguera, setLongitudManguera] = useState(20);
   const [diametroId, setDiametroId] = useState(catalogoMedios[0].diametrosDisponibles[0]);
+  const [circuitoId, setCircuitoId] = useState(catalogoMedios[0].circuitos?.[0]?.id ?? null);
   const [numEquipos, setNumEquipos] = useState(1);
   const [factorEficiencia, setFactorEficiencia] = useState(75);
 
@@ -28,13 +29,19 @@ export default function TiempoVaciado() {
     () => diametrosDelEquipo.find((d) => d.id === diametroId) || diametrosDelEquipo[0],
     [diametrosDelEquipo, diametroId]
   );
+  const circuito = useMemo(
+    () => medio.circuitos?.find((c) => c.id === circuitoId) || medio.circuitos?.[0] || null,
+    [medio, circuitoId]
+  );
+  const curvaActiva = circuito ? circuito.curva : medio.curva;
 
   // Al cambiar de equipo, se selecciona automáticamente el primer racor real
-  // disponible para ese equipo (los diámetros no son los mismos para todos).
+  // y el primer circuito de presión disponibles para ese equipo.
   function cambiarMedio(nuevoMedioId) {
     setMedioId(nuevoMedioId);
     const nuevoMedio = catalogoMedios.find((m) => m.id === nuevoMedioId);
     setDiametroId(diametrosDeEquipo(nuevoMedio)[0].id);
+    setCircuitoId(nuevoMedio.circuitos?.[0]?.id ?? null);
   }
 
   const volumenM3 = useMemo(
@@ -45,12 +52,12 @@ export default function TiempoVaciado() {
   const puntoTrabajo = useMemo(
     () =>
       estimarPuntoTrabajo({
-        curva: medio.curva,
+        curva: curvaActiva,
         desnivelM: Number(desnivel) || 0,
         longitudManguera: Number(longitudManguera) || 0,
         coeficienteManguera: diametro.coeficiente,
       }),
-    [medio, desnivel, longitudManguera, diametro]
+    [curvaActiva, desnivel, longitudManguera, diametro]
   );
 
   const resultado = useMemo(
@@ -99,6 +106,19 @@ export default function TiempoVaciado() {
               </option>
             ))}
           </select>
+
+          {medio.circuitos && (
+            <>
+              <label>Circuito / modo de presión</label>
+              <select value={circuitoId} onChange={(e) => setCircuitoId(e.target.value)}>
+                {medio.circuitos.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
 
           <label>Desnivel hasta el punto de vertido (m)</label>
           <input type="number" min="0" value={desnivel} onChange={(e) => setDesnivel(e.target.value)} />

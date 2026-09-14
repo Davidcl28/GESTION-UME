@@ -20,25 +20,48 @@ export const catalogoMedios = [
     ],
   },
   {
+    // La Godiva WT2010 tiene dos cuerpos de bomba independientes y
+    // seleccionables (ver "Selector Alta/Baja Presión" en cabina), cada uno
+    // con su propia salida: NO es una única curva continua entre ambos
+    // puntos, son dos circuitos distintos que no se pueden mezclar.
     id: 'iveco',
     nombre: 'Autobomba A/B IVECO (bomba Godiva WT2010)',
     uso: 'Uso general / contraincendios. Cebado automático por anillo de agua (<30 s con 9 m de mangote).',
     succionMax: 8,
     diametrosDisponibles: ['70', '45', '25'], // racores de salida BARCELONA
-    curva: [
-      { altura: 102, caudal: 3000 }, // 3000 l/min a 10 bar
-      { altura: 357, caudal: 350 }, // 350 l/min a 35 bar
+    circuitos: [
+      {
+        id: 'baja',
+        nombre: 'Baja presión (normal)',
+        curva: [{ altura: 102, caudal: 3000 }], // 3000 l/min a 10 bar
+      },
+      {
+        id: 'alta',
+        nombre: 'Alta presión',
+        curva: [{ altura: 357, caudal: 350 }], // 350 l/min a 35 bar
+      },
     ],
   },
   {
+    // La Rosenbauer NH45 también tiene dos circuitos independientes y
+    // seleccionables, con salidas de manguera distintas para cada uno (ver
+    // "Salidas Baja presión" / "Salidas Alta presión" en el panel).
     id: 'renault-scania',
     nombre: 'VMI Renault/Scania (bomba Rosenbauer NH45)',
     uso: 'Alto caudal y presión múltiple. La más moderna, vehículo multipropósito (LCIF).',
     succionMax: 8,
     diametrosDisponibles: ['70', '45', '25'], // racores de salida BARCELONA
-    curva: [
-      { altura: 102, caudal: 4500 }, // 4500 l/min a 10 bar (presión normal)
-      { altura: 408, caudal: 400 }, // 400 l/min a 40 bar (alta presión)
+    circuitos: [
+      {
+        id: 'baja',
+        nombre: 'Baja presión (normal)',
+        curva: [{ altura: 102, caudal: 4500 }], // 4500 l/min a 10 bar
+      },
+      {
+        id: 'alta',
+        nombre: 'Alta presión',
+        curva: [{ altura: 408, caudal: 400 }], // 400 l/min a 40 bar
+      },
     ],
   },
   {
