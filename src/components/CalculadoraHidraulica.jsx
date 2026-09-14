@@ -142,10 +142,11 @@ export default function CalculadoraHidraulica() {
           )}
 
           <p className="calc-note">
-            <em>Nota de campo:</em> estimación basada en curvas aproximadas del manual e
-            interpolación lineal. Evite trabajar en seco más de 3 minutos en bombas centrífugas
-            convencionales. Calibre los coeficientes de pérdida de manguera con datos reales cuando
-            estén disponibles.
+            <em>Nota de campo:</em> el caudal se estima ajustando la curva característica de la
+            bomba (H = H0 − k·Q²) a los puntos oficiales de la ficha técnica, por lo que baja de
+            forma continua con la altura en todo el rango, no solo entre los puntos conocidos.
+            Evite trabajar en seco más de 3 minutos en bombas centrífugas convencionales. Calibre
+            los coeficientes de pérdida de manguera con datos reales cuando estén disponibles.
           </p>
         </div>
       </div>

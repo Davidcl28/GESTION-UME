@@ -1,25 +1,44 @@
-// Utilidades de cálculo hidráulico: interpolación de curvas de bomba
+// Utilidades de cálculo hidráulico: ajuste de la curva de la bomba
 // y estimación de pérdidas de carga en manguera.
 
-// Interpola linealmente el caudal (l/min) de una curva de bomba
-// {altura, caudal}[] (ordenada por altura ascendente) para una
-// altura manométrica total dada. Fuera de rango, satura al extremo.
-export function interpolarCaudal(curva, alturaManometrica) {
-  const puntos = [...curva].sort((a, b) => a.altura - b.altura);
+// Las fichas del manual solo dan 2-4 puntos (caudal, altura) de la curva real
+// de la bomba, normalmente a presiones altas (10-40 bar). Para poder estimar
+// el caudal también en el rango de alturas bajas (el habitual al achicar un
+// garaje o sótano, unos pocos metros), se ajusta la forma característica de
+// una bomba centrífuga H(Q) = H0 - k·Q² por mínimos cuadrados sobre los
+// puntos oficiales, en vez de interpolar linealmente entre ellos. Así el
+// caudal decrece de forma continua y realista con la altura en todo el rango,
+// no solo entre los puntos conocidos.
+function ajustarCurvaCuadratica(curva) {
+  const datos = curva.map((p) => ({ x: p.caudal ** 2, h: p.altura }));
 
-  if (alturaManometrica <= puntos[0].altura) return puntos[0].caudal;
-  const ultimo = puntos[puntos.length - 1];
-  if (alturaManometrica >= ultimo.altura) return Math.max(ultimo.caudal, 0);
-
-  for (let i = 0; i < puntos.length - 1; i++) {
-    const p1 = puntos[i];
-    const p2 = puntos[i + 1];
-    if (alturaManometrica >= p1.altura && alturaManometrica <= p2.altura) {
-      const t = (alturaManometrica - p1.altura) / (p2.altura - p1.altura);
-      return p1.caudal + t * (p2.caudal - p1.caudal);
-    }
+  if (datos.length === 1) {
+    const { x, h } = datos[0];
+    const k = x > 0 ? h / (x * 3) : 1e-6; // pendiente conservadora arbitraria
+    return { H0: h + k * x, k };
   }
-  return ultimo.caudal;
+
+  const n = datos.length;
+  const xBar = datos.reduce((s, d) => s + d.x, 0) / n;
+  const hBar = datos.reduce((s, d) => s + d.h, 0) / n;
+  let num = 0;
+  let den = 0;
+  for (const d of datos) {
+    num += (d.x - xBar) * (d.h - hBar);
+    den += (d.x - xBar) ** 2;
+  }
+  const pendiente = den !== 0 ? num / den : -1e-6; // pendiente = -k
+  const k = pendiente < 0 ? -pendiente : 1e-6;
+  const H0 = hBar - pendiente * xBar;
+  return { H0, k };
+}
+
+// Caudal (l/min) que entrega la bomba para una altura manométrica dada,
+// según la curva H0 - k·Q² ajustada a los puntos oficiales de la ficha.
+export function interpolarCaudal(curva, alturaManometrica) {
+  const { H0, k } = ajustarCurvaCuadratica(curva);
+  if (alturaManometrica >= H0) return 0;
+  return Math.sqrt((H0 - alturaManometrica) / k);
 }
 
 // Pérdida de carga estimada en la manguera (m de columna de agua)
