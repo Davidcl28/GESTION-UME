@@ -83,7 +83,7 @@ export default function CalculadoraHidraulica() {
             onChange={(e) => setAlturaImpulsion(e.target.value)}
           />
 
-          <label>Distancia de mangueraje (m)</label>
+          <label>Distancia de mangueraje de impulsión (bomba → salida, m)</label>
           <input
             type="number"
             min="0"

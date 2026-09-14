@@ -85,7 +85,7 @@ export default function TiempoVaciado() {
           <label>Desnivel hasta el punto de vertido (m)</label>
           <input type="number" min="0" value={desnivel} onChange={(e) => setDesnivel(e.target.value)} />
 
-          <label>Distancia de mangueraje (m)</label>
+          <label>Distancia de mangueraje de impulsión (bomba → salida, m)</label>
           <input
             type="number"
             min="0"
