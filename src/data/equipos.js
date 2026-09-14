@@ -12,6 +12,7 @@ export const catalogoMedios = [
     nombre: 'Autobomba A/B URO (bomba Ruberg R-20)',
     uso: 'Agua limpia / baja presión. La más antigua en dotación, sin cuerpo de alta presión.',
     succionMax: 8,
+    diametrosDisponibles: ['70', '45', '25'], // racores de salida BARCELONA
     curva: [
       { altura: 102, caudal: 2000 }, // 2000 l/min a 10 bar
       { altura: 204, caudal: 1000 }, // 1000 l/min a 20 bar
@@ -23,6 +24,7 @@ export const catalogoMedios = [
     nombre: 'Autobomba A/B IVECO (bomba Godiva WT2010)',
     uso: 'Uso general / contraincendios. Cebado automático por anillo de agua (<30 s con 9 m de mangote).',
     succionMax: 8,
+    diametrosDisponibles: ['70', '45', '25'], // racores de salida BARCELONA
     curva: [
       { altura: 102, caudal: 3000 }, // 3000 l/min a 10 bar
       { altura: 357, caudal: 350 }, // 350 l/min a 35 bar
@@ -33,6 +35,7 @@ export const catalogoMedios = [
     nombre: 'VMI Renault/Scania (bomba Rosenbauer NH45)',
     uso: 'Alto caudal y presión múltiple. La más moderna, vehículo multipropósito (LCIF).',
     succionMax: 8,
+    diametrosDisponibles: ['70', '45', '25'], // racores de salida BARCELONA
     curva: [
       { altura: 102, caudal: 4500 }, // 4500 l/min a 10 bar (presión normal)
       { altura: 408, caudal: 400 }, // 400 l/min a 40 bar (alta presión)
@@ -43,6 +46,7 @@ export const catalogoMedios = [
     nombre: 'Motobomba Honda WH-75 (dotación A/B IVECO)',
     uso: 'Motobomba portátil de apoyo. Autoaspirante hasta 8 m, elevación máx. 75 m.',
     succionMax: 8,
+    diametrosDisponibles: ['45', '25'], // racores de salida BARCELONA
     curva: [
       { altura: 5, caudal: 400 }, // caudal medido en prácticas: 4000 l en 10 min
       { altura: 75, caudal: 40 }, // elevación máxima del fabricante
@@ -53,6 +57,7 @@ export const catalogoMedios = [
     nombre: 'Motobomba Honda WT30X',
     uso: 'Aguas sucias / achique. Racores de 80 mm.',
     succionMax: 8,
+    diametrosDisponibles: ['80'], // diámetro de orificio de succión/descarga de fábrica
     curva: [
       { altura: 3, caudal: 1200 }, // caudal máx. 1200 l/min (72.000 l/h)
       { altura: 25, caudal: 60 }, // altura máx. de bombeo 25 m
@@ -63,6 +68,7 @@ export const catalogoMedios = [
     nombre: 'Motobomba Honda WT20X',
     uso: 'Aguas sucias / achique. Racores de 50 mm.',
     succionMax: 8,
+    diametrosDisponibles: ['50'], // diámetro de orificio de succión/descarga de fábrica
     curva: [
       { altura: 3, caudal: 700 }, // caudal máx. 700 l/min (42.000 l/h)
       { altura: 26, caudal: 40 }, // altura máx. de bombeo 26 m
@@ -73,6 +79,7 @@ export const catalogoMedios = [
     nombre: 'Motobomba ALBATROS (agua y lodos)',
     uso: 'Especial para líquidos abrasivos y cargados, sólidos hasta 10 cm de diámetro.',
     succionMax: 7,
+    diametrosDisponibles: ['70'], // racor de salida BARCELONA
     curva: [
       { altura: 3, caudal: 1833 }, // caudal máx. 110.000 l/h
       { altura: 25, caudal: 100 }, // presión máxima 25 m
@@ -83,6 +90,7 @@ export const catalogoMedios = [
     nombre: 'Equipo EMBAL (agua y lodos, sobre plataforma)',
     uso: 'Lodos y sólidos hasta 10 cm de diámetro. Distancia máx. aspiración-impulsión 200 m.',
     succionMax: 8.8,
+    diametrosDisponibles: ['100'], // manguera de dotación BARCELONA 4" (100 mm)
     curva: [
       { altura: 5, caudal: 5333 }, // capacidad máx. 320 m³/h
       { altura: 12, caudal: 3500 },
@@ -95,6 +103,7 @@ export const catalogoMedios = [
     uso: 'Sumergible. Bombea sólidos hasta 80 mm. Requiere grupo electrógeno de 5 kVA.',
     succionMax: null,
     sumergible: true,
+    diametrosDisponibles: ['100'], // racor de salida Storz 4"
     curva: [
       { altura: 5, caudal: 1600 },
       { altura: 20, caudal: 1200 },
@@ -108,6 +117,7 @@ export const catalogoMedios = [
     uso: 'Sumergible. Bombea sólidos hasta 80 mm. Mayor caudal que la HT, menor altura.',
     succionMax: null,
     sumergible: true,
+    diametrosDisponibles: ['150'], // racor de salida Storz 6"
     curva: [
       { altura: 5, caudal: 4000 },
       { altura: 20, caudal: 2500 },
@@ -120,6 +130,7 @@ export const catalogoMedios = [
     uso: 'Sumergible, monofásica 230V. Profundidad de inmersión hasta 11 m (máx. sumergible 20 m).',
     succionMax: null,
     sumergible: true,
+    diametrosDisponibles: ['45'], // racor de salida BARCELONA
     curva: [
       { altura: 5, caudal: 150 },
       { altura: 10, caudal: 100 },
@@ -129,8 +140,9 @@ export const catalogoMedios = [
   {
     id: 'sigeflu',
     nombre: 'Sistema SIGEFLU',
-    uso: 'Achique masivo / hidrado a gran distancia (hasta 3 km).',
+    uso: 'Achique masivo / hidrado a gran distancia (hasta 3 km). Racores Victaulic/Barcelona de 100-250 mm.',
     succionMax: null,
+    diametrosDisponibles: ['150', '100'], // aproximación: racores reales 100-250 mm
     curva: [
       { altura: 20, caudal: 18000 }, // 300 l/seg
       { altura: 60, caudal: 12000 },
@@ -160,8 +172,11 @@ export const turbobomba = {
 export const diametrosManguera = [
   { id: '25', nombre: '25 mm', coeficiente: 0.9, caudalRecomendadoMax: 250 },
   { id: '45', nombre: '45 mm', coeficiente: 0.15, caudalRecomendadoMax: 1000 },
+  { id: '50', nombre: '50 mm', coeficiente: 0.085, caudalRecomendadoMax: 1350 },
   { id: '70', nombre: '70 mm', coeficiente: 0.03, caudalRecomendadoMax: 3000 },
+  { id: '80', nombre: '80 mm', coeficiente: 0.017, caudalRecomendadoMax: 3500 },
   { id: '100', nombre: '100 mm (rígida/semirrígida)', coeficiente: 0.008, caudalRecomendadoMax: 6000 },
+  { id: '150', nombre: '150 mm (Storz 6" / rígida)', coeficiente: 0.002, caudalRecomendadoMax: 12000 },
 ];
 
 export const LIMITE_SUCCION_GENERAL_M = 8;

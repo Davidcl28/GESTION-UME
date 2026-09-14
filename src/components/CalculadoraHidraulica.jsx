@@ -3,16 +3,34 @@ import { catalogoMedios, diametrosManguera, LIMITE_SUCCION_GENERAL_M } from '../
 import { estimarPuntoTrabajo } from '../utils/hidraulica';
 import './CalculadoraHidraulica.css';
 
+function diametrosDeEquipo(medio) {
+  return (medio.diametrosDisponibles || diametrosManguera.map((d) => d.id)).map(
+    (id) => diametrosManguera.find((d) => d.id === id)
+  );
+}
+
 export default function CalculadoraHidraulica() {
   const [medioId, setMedioId] = useState(catalogoMedios[0].id);
   const [alturaSuccion, setAlturaSuccion] = useState(3);
   const [alturaImpulsion, setAlturaImpulsion] = useState(7);
   const [longitudManguera, setLongitudManguera] = useState(40);
-  const [diametroId, setDiametroId] = useState('70');
+  const [diametroId, setDiametroId] = useState(catalogoMedios[0].diametrosDisponibles[0]);
   const [densidad, setDensidad] = useState(1.0);
 
   const medio = useMemo(() => catalogoMedios.find((m) => m.id === medioId), [medioId]);
-  const diametro = useMemo(() => diametrosManguera.find((d) => d.id === diametroId), [diametroId]);
+  const diametrosDelEquipo = useMemo(() => diametrosDeEquipo(medio), [medio]);
+  const diametro = useMemo(
+    () => diametrosDelEquipo.find((d) => d.id === diametroId) || diametrosDelEquipo[0],
+    [diametrosDelEquipo, diametroId]
+  );
+
+  // Al cambiar de equipo, se selecciona automáticamente el primer racor real
+  // disponible para ese equipo (los diámetros no son los mismos para todos).
+  function cambiarMedio(nuevoMedioId) {
+    setMedioId(nuevoMedioId);
+    const nuevoMedio = catalogoMedios.find((m) => m.id === nuevoMedioId);
+    setDiametroId(diametrosDeEquipo(nuevoMedio)[0].id);
+  }
 
   const desnivelTotal = (Number(alturaSuccion) || 0) + (Number(alturaImpulsion) || 0);
 
@@ -50,7 +68,7 @@ export default function CalculadoraHidraulica() {
       <div className="calc-grid">
         <div className="calc-form">
           <label>Medio de extracción UME</label>
-          <select value={medioId} onChange={(e) => setMedioId(e.target.value)}>
+          <select value={medioId} onChange={(e) => cambiarMedio(e.target.value)}>
             {catalogoMedios.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.nombre}
@@ -91,9 +109,9 @@ export default function CalculadoraHidraulica() {
             onChange={(e) => setLongitudManguera(e.target.value)}
           />
 
-          <label>Diámetro de manguera / racor</label>
+          <label>Diámetro de manguera / racor (racores reales de este equipo)</label>
           <select value={diametroId} onChange={(e) => setDiametroId(e.target.value)}>
-            {diametrosManguera.map((d) => (
+            {diametrosDelEquipo.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.nombre}
               </option>
