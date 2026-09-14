@@ -28,9 +28,21 @@ export default function CalculadoraHidraulica() {
     [medio, desnivelTotal, longitudManguera, diametro, densidad]
   );
 
+  // La succión es un límite físico (presión atmosférica), no de potencia de la
+  // bomba: por encima de ~8 m (o del límite propio del equipo si es menor)
+  // ninguna bomba centrífuga puede aspirar agua, así que el caudal real es 0
+  // aunque la curva matemática siga dando un valor. La impulsión no tiene este
+  // límite: ahí solo manda la presión que dé la bomba.
+  const limiteSuccionAplicable = medio.succionMax != null
+    ? Math.min(medio.succionMax, LIMITE_SUCCION_GENERAL_M)
+    : LIMITE_SUCCION_GENERAL_M;
+  const succionImposible = !medio.sumergible && Number(alturaSuccion) > limiteSuccionAplicable;
   const succionExcedida = medio.succionMax != null && Number(alturaSuccion) > medio.succionMax;
   const limiteGeneralExcedido = !medio.sumergible && Number(alturaSuccion) > LIMITE_SUCCION_GENERAL_M;
-  const caudalExcedeManguera = resultado.caudalLMin > diametro.caudalRecomendadoMax;
+  const caudalMostrado = succionImposible ? 0 : resultado.caudalLMin;
+  const perdidaMostrada = succionImposible ? 0 : resultado.perdidaCargaM;
+  const alturaTotalMostrada = succionImposible ? desnivelTotal : resultado.alturaManometricaTotal;
+  const caudalExcedeManguera = !succionImposible && resultado.caudalLMin > diametro.caudalRecomendadoMax;
 
   return (
     <div>
@@ -102,16 +114,16 @@ export default function CalculadoraHidraulica() {
         <div className="calc-result">
           <h4>📊 Estimación técnica del punto de trabajo</h4>
           <p>
-            <strong>Caudal real estimado:</strong> {resultado.caudalLMin} l/min
+            <strong>Caudal real estimado:</strong> {caudalMostrado} l/min
           </p>
           <p>
             <strong>Altura geométrica (succión + impulsión):</strong> {desnivelTotal.toFixed(1)} m
           </p>
           <p>
-            <strong>Pérdida de carga en manguera:</strong> {resultado.perdidaCargaM} m
+            <strong>Pérdida de carga en manguera:</strong> {perdidaMostrada} m
           </p>
           <p>
-            <strong>Altura manométrica total resultante:</strong> {resultado.alturaManometricaTotal} m
+            <strong>Altura manométrica total resultante:</strong> {alturaTotalMostrada} m
           </p>
           <p>
             <strong>Aplicación principal del equipo:</strong> {medio.uso}
@@ -119,16 +131,18 @@ export default function CalculadoraHidraulica() {
 
           <hr />
 
-          {succionExcedida && (
-            <p className="calc-warning">
-              ⚠️ La altura de succión ({alturaSuccion} m) supera el límite del equipo seleccionado (
-              {medio.succionMax} m).
+          {succionImposible && succionExcedida && (
+            <p className="calc-danger">
+              ⛔ Succión inviable: {alturaSuccion} m supera el límite del equipo seleccionado (
+              {medio.succionMax} m). Ninguna bomba puede aspirar por encima de ese límite, sea cual
+              sea su potencia: acerque la bomba al agua o sumérjala.
             </p>
           )}
-          {!succionExcedida && limiteGeneralExcedido && (
-            <p className="calc-warning">
-              ⚠️ La altura de succión ({alturaSuccion} m) supera el límite general de{' '}
-              {LIMITE_SUCCION_GENERAL_M} m.
+          {succionImposible && !succionExcedida && limiteGeneralExcedido && (
+            <p className="calc-danger">
+              ⛔ Succión inviable: {alturaSuccion} m supera el límite físico de ~
+              {LIMITE_SUCCION_GENERAL_M} m (presión atmosférica). Ninguna bomba centrífuga puede
+              aspirar por encima de esa altura: acerque la bomba al agua o sumérjala.
             </p>
           )}
           {caudalExcedeManguera && (
@@ -137,7 +151,7 @@ export default function CalculadoraHidraulica() {
               {diametro.caudalRecomendadoMax} l/min). Valorar diámetro mayor o mangueraje en paralelo.
             </p>
           )}
-          {!succionExcedida && !limiteGeneralExcedido && !caudalExcedeManguera && (
+          {!succionImposible && !caudalExcedeManguera && (
             <p className="calc-ok">✅ Punto de trabajo dentro de los límites recomendados.</p>
           )}
 
