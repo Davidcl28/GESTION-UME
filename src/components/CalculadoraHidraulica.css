@@ -56,3 +56,13 @@
   font-size: 13px;
   color: #aaa;
 }
+
+.calc-hint {
+  font-size: 13px;
+  color: #8fc4ff;
+  background-color: #1e2d3d;
+  border: 1px solid #2d4a66;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin: 0 0 12px;
+}

@@ -46,6 +46,12 @@ export default function CalculadoraHidraulica() {
             ))}
           </select>
 
+          <p className="calc-hint">
+            Rellene las dos si aplican: se suman. Si la bomba está sumergida en el agua, succión =
+            0. Si está en superficie con manguera hacia el agua, impulsión será la altura desde la
+            bomba hasta el punto de vertido.
+          </p>
+
           <label>
             Altura de succión{medio.sumergible ? ' (no aplica: equipo sumergible)' : ' (agua → bomba, m)'}
           </label>
