@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import CalculadoraHidraulica from './components/CalculadoraHidraulica';
 import AsistenteManuales from './components/AsistenteManuales';
+import TiempoVaciado from './components/TiempoVaciado';
 import './App.css';
 
 function App() {
@@ -23,10 +24,18 @@ function App() {
           >
             Asistente de Manuales
           </button>
+          <button
+            className={activeTab === 'vaciado' ? 'active' : ''}
+            onClick={() => setActiveTab('vaciado')}
+          >
+            Tiempo de Vaciado
+          </button>
         </div>
       </header>
 
-      {activeTab === 'hidraulica' ? <CalculadoraHidraulica /> : <AsistenteManuales />}
+      {activeTab === 'hidraulica' && <CalculadoraHidraulica />}
+      {activeTab === 'manuales' && <AsistenteManuales />}
+      {activeTab === 'vaciado' && <TiempoVaciado />}
     </div>
   );
 }
