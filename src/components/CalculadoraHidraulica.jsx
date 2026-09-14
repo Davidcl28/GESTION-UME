@@ -5,29 +5,31 @@ import './CalculadoraHidraulica.css';
 
 export default function CalculadoraHidraulica() {
   const [medioId, setMedioId] = useState(catalogoMedios[0].id);
-  const [desnivel, setDesnivel] = useState(10);
+  const [alturaSuccion, setAlturaSuccion] = useState(3);
+  const [alturaImpulsion, setAlturaImpulsion] = useState(7);
   const [longitudManguera, setLongitudManguera] = useState(40);
   const [diametroId, setDiametroId] = useState('70');
   const [densidad, setDensidad] = useState(1.0);
-  const [alturaSuccion, setAlturaSuccion] = useState(5);
 
   const medio = useMemo(() => catalogoMedios.find((m) => m.id === medioId), [medioId]);
   const diametro = useMemo(() => diametrosManguera.find((d) => d.id === diametroId), [diametroId]);
+
+  const desnivelTotal = (Number(alturaSuccion) || 0) + (Number(alturaImpulsion) || 0);
 
   const resultado = useMemo(
     () =>
       estimarPuntoTrabajo({
         curva: medio.curva,
-        desnivelM: Number(desnivel) || 0,
+        desnivelM: desnivelTotal,
         longitudManguera: Number(longitudManguera) || 0,
         coeficienteManguera: diametro.coeficiente,
         densidadRelativa: Number(densidad) || 1,
       }),
-    [medio, desnivel, longitudManguera, diametro, densidad]
+    [medio, desnivelTotal, longitudManguera, diametro, densidad]
   );
 
   const succionExcedida = medio.succionMax != null && Number(alturaSuccion) > medio.succionMax;
-  const limiteGeneralExcedido = Number(alturaSuccion) > LIMITE_SUCCION_GENERAL_M;
+  const limiteGeneralExcedido = !medio.sumergible && Number(alturaSuccion) > LIMITE_SUCCION_GENERAL_M;
   const caudalExcedeManguera = resultado.caudalLMin > diametro.caudalRecomendadoMax;
 
   return (
@@ -44,8 +46,24 @@ export default function CalculadoraHidraulica() {
             ))}
           </select>
 
-          <label>Desnivel / altura manométrica geométrica (m)</label>
-          <input type="number" min="0" value={desnivel} onChange={(e) => setDesnivel(e.target.value)} />
+          <label>
+            Altura de succión{medio.sumergible ? ' (no aplica: equipo sumergible)' : ' (agua → bomba, m)'}
+          </label>
+          <input
+            type="number"
+            min="0"
+            value={alturaSuccion}
+            disabled={medio.sumergible}
+            onChange={(e) => setAlturaSuccion(e.target.value)}
+          />
+
+          <label>Altura de impulsión (bomba → punto de vertido, m)</label>
+          <input
+            type="number"
+            min="0"
+            value={alturaImpulsion}
+            onChange={(e) => setAlturaImpulsion(e.target.value)}
+          />
 
           <label>Distancia de mangueraje (m)</label>
           <input
@@ -73,20 +91,15 @@ export default function CalculadoraHidraulica() {
             value={densidad}
             onChange={(e) => setDensidad(e.target.value)}
           />
-
-          <label>Altura de succión prevista (m)</label>
-          <input
-            type="number"
-            min="0"
-            value={alturaSuccion}
-            onChange={(e) => setAlturaSuccion(e.target.value)}
-          />
         </div>
 
         <div className="calc-result">
           <h4>📊 Estimación técnica del punto de trabajo</h4>
           <p>
             <strong>Caudal real estimado:</strong> {resultado.caudalLMin} l/min
+          </p>
+          <p>
+            <strong>Altura geométrica (succión + impulsión):</strong> {desnivelTotal.toFixed(1)} m
           </p>
           <p>
             <strong>Pérdida de carga en manguera:</strong> {resultado.perdidaCargaM} m
@@ -102,13 +115,13 @@ export default function CalculadoraHidraulica() {
 
           {succionExcedida && (
             <p className="calc-warning">
-              ⚠️ La altura de succión prevista ({alturaSuccion} m) supera el límite del equipo
-              seleccionado ({medio.succionMax} m).
+              ⚠️ La altura de succión ({alturaSuccion} m) supera el límite del equipo seleccionado (
+              {medio.succionMax} m).
             </p>
           )}
           {!succionExcedida && limiteGeneralExcedido && (
             <p className="calc-warning">
-              ⚠️ La altura de succión prevista ({alturaSuccion} m) supera el límite general de{' '}
+              ⚠️ La altura de succión ({alturaSuccion} m) supera el límite general de{' '}
               {LIMITE_SUCCION_GENERAL_M} m.
             </p>
           )}
