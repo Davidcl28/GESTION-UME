@@ -216,6 +216,19 @@ export const catalogoMedios = [
     solidos: { apto: false },
     curva: [{ altura: 123, caudal: 20400 }], // 12,1 bar → 1224 m³/h (único dato oficial de la tabla)
   },
+  {
+    // Datos limitados: la ficha solo la menciona en la tabla de racores
+    // (un único punto de rendimiento), sin página propia como el resto de
+    // motobombas. Tratar el resultado con más cautela que el resto.
+    id: 'wick',
+    nombre: 'Motobomba WICK',
+    uso: 'Datos limitados en la ficha (solo tabla de racores, sin página propia). Contrastar con el manual antes de un uso crítico.',
+    succionMax: 8,
+    caudalMaximoLMin: 350, // 2 bar → 350 l/min (único dato oficial de la tabla de racores)
+    diametrosDisponibles: ['45'], // racor de salida BARCELONA (aspiración NPSH/Storz 50mm con adaptador)
+    solidos: { apto: false },
+    curva: [{ altura: 20.4, caudal: 350 }], // 2 bar → 350 l/min (único dato oficial)
+  },
 ];
 
 // Turbobomba: no tiene curva de altura/caudal convencional (es un eyector accionado
