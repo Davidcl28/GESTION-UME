@@ -1,5 +1,6 @@
-// Utilidades de cálculo hidráulico: ajuste de la curva de la bomba
-// y estimación de pérdidas de carga en manguera.
+// Utilidades de cálculo hidráulico: ajuste de la curva de la bomba,
+// pérdidas de carga en tendidos de manguera (con reducciones de diámetro)
+// y presión/caudal en una lanza reguladora (tipo SIDEINFO) al final del tendido.
 
 // Las fichas del manual solo dan 2-4 puntos (caudal, altura) de la curva real
 // de la bomba, normalmente a presiones altas (10-40 bar). Para poder estimar
@@ -41,27 +42,82 @@ export function interpolarCaudal(curva, alturaManometrica) {
   return Math.sqrt((H0 - alturaManometrica) / k);
 }
 
-// Pérdida de carga estimada en la manguera (m de columna de agua)
-// para un caudal Q (l/min), longitud L (m) y coeficiente de la manguera.
-// pérdida(bar/100m) = coeficiente * (Q/100)^2  →  convertida a metros (1 bar ≈ 10,2 m c.a.)
+// Pérdida de carga en un tramo de manguera (m de columna de agua), a partir
+// de la tabla real de pérdidas de carga (bar/100m) por diámetro: los datos
+// oficiales siguen con altísima precisión pérdida = coeficiente·(Q/100)²
+// para los tres diámetros de la tabla (25/45/70mm; exponente 2 verificado
+// sobre ~40 puntos de tabla), así que se generaliza igual al resto de
+// diámetros. coeficiente ya viene ajustado a esa tabla por diámetro
+// (ver diametrosManguera en data/equipos.js).
 export function perdidaCargaManguera(caudalLMin, longitudM, coeficiente) {
   const perdidaBarPor100m = coeficiente * (caudalLMin / 100) ** 2;
   const perdidaBarTotal = perdidaBarPor100m * (longitudM / 100);
   return perdidaBarTotal * 10.2;
 }
 
+// Pérdida de carga (m) en una reducción/ensanchamiento de diámetro dentro de
+// un tendido mixto. No hay datos oficiales de pérdida por racor de reducción
+// en el manual, así que se estima con la fórmula clásica de pérdida singular
+// en contracciones/ensanchamientos bruscos (K·v²/2g); es una aproximación,
+// normalmente pequeña frente a la pérdida en la propia manguera, pero se
+// incluye para no ignorarla en tendidos con muchos cambios de diámetro.
+function perdidaReduccionM(caudalLMin, diametroAnteriorMM, diametroActualMM) {
+  if (diametroAnteriorMM === diametroActualMM) return 0;
+  const caudalM3s = caudalLMin / 60000;
+  const velocidad = (diametroMM) => caudalM3s / (Math.PI * (diametroMM / 2000) ** 2);
+  const v1 = velocidad(diametroAnteriorMM);
+  const v2 = velocidad(diametroActualMM);
+  const g = 9.81;
+  if (diametroActualMM < diametroAnteriorMM) {
+    // Contracción (racor de reducción): K ≈ 0.3, típico de un acoplamiento
+    // roscado/racor rápido (no una contracción brusca de tubería industrial).
+    return (0.3 * v2 * v2) / (2 * g);
+  }
+  // Ensanchamiento: pérdida de Borda-Carnot.
+  return ((v1 - v2) ** 2) / (2 * g);
+}
+
+// Pérdida de carga total (m) de un tendido con uno o varios tramos de
+// distinto diámetro en serie, incluyendo la pérdida en cada racor de
+// reducción entre tramos consecutivos.
+export function perdidaTendido(caudalLMin, tramos, densidadRelativa = 1) {
+  let total = 0;
+  tramos.forEach((tramo, i) => {
+    total += perdidaCargaManguera(caudalLMin, tramo.longitudM, tramo.coeficiente) * densidadRelativa;
+    if (i > 0) {
+      total += perdidaReduccionM(caudalLMin, tramos[i - 1].diametroMM, tramo.diametroMM) * densidadRelativa;
+    }
+  });
+  return total;
+}
+
+// Presión necesaria (m de columna de agua) en una lanza/boquilla reguladora
+// (tipo SIDEINFO) para entregar un caudal Q por un orificio de diámetro dado,
+// según la ecuación clásica de orificio: Q(l/min) = Cd·0,667·d²(mm)·√P(bar).
+// Cd (coeficiente de descarga) ≈ 0,9 es un valor típico de catálogo para
+// boquillas de bomberos de perfil suave; es un modelo físico estándar, no una
+// lectura literal de la tarjeta de la boquilla (que da caudal/alcance ya
+// medidos en banco, más precisos si se dispone de ellos).
+export function presionBoquillaM(caudalLMin, diametroBoquillaMM, cd = 0.9) {
+  const k = cd * 0.667 * diametroBoquillaMM * diametroBoquillaMM;
+  if (k <= 0 || caudalLMin <= 0) return 0;
+  const presionBar = (caudalLMin / k) ** 2;
+  return presionBar * 10.2;
+}
+
 // Resuelve el punto de trabajo real (caudal estable en l/min) de un equipo
-// dado un desnivel geométrico, una longitud de manguera y un diámetro: la
-// pérdida de carga depende del caudal, y el caudal que da la bomba depende a
-// su vez de la altura manométrica total (desnivel + pérdida), así que hay que
-// encontrar el punto donde ambas curvas se cruzan. Se resuelve por bisección
-// sobre f(Q) = (desnivel + pérdida(Q)) - alturaBomba(Q), que es monótona
-// creciente en Q (la pérdida sube con el caudal, la altura de la bomba baja),
-// por lo que siempre converge a la única solución — a diferencia de una
-// iteración de punto fijo directa, que puede oscilar sin converger cuando la
-// pérdida de carga inicial estimada es muy superior a la altura máxima de la
-// bomba (típico con curvas de un solo punto, como los circuitos de alta
-// presión de algunas autobombas).
+// dado un desnivel geométrico y un tendido (uno o varios tramos de manguera,
+// con sus reducciones, y opcionalmente una lanza al final): la pérdida total
+// depende del caudal, y el caudal que da la bomba depende a su vez de la
+// altura manométrica total (desnivel + pérdidas), así que hay que encontrar
+// el punto donde ambas curvas se cruzan. Se resuelve por bisección sobre
+// f(Q) = (desnivel + pérdidas(Q)) - alturaBomba(Q), que es monótona creciente
+// en Q (las pérdidas suben con el caudal, la altura de la bomba baja), por lo
+// que siempre converge a la única solución — a diferencia de una iteración de
+// punto fijo directa, que puede oscilar sin converger cuando la pérdida de
+// carga inicial estimada es muy superior a la altura máxima de la bomba
+// (típico con curvas de un solo punto, como los circuitos de alta presión de
+// algunas autobombas).
 // alturaMaximaM y caudalMaximoLMin (opcionales) son topes duros tomados
 // literalmente de la ficha del equipo (p.ej. "altura máx. de bombeo 25 m" o
 // "caudal máximo 1200 l/min"). El ajuste cuadrático es solo una estimación
@@ -73,18 +129,22 @@ export function perdidaCargaManguera(caudalLMin, longitudM, coeficiente) {
 export function estimarPuntoTrabajo({
   curva,
   desnivelM,
-  longitudManguera,
-  coeficienteManguera,
+  tramos,
   densidadRelativa = 1,
   alturaMaximaM,
   caudalMaximoLMin,
+  boquilla, // opcional: { diametroMM, cd }
 }) {
   const { H0: H0Ajustado, k } = ajustarCurvaCuadratica(curva);
   const H0 = alturaMaximaM != null ? Math.min(H0Ajustado, alturaMaximaM) : H0Ajustado;
 
   const alturaBomba = (Q) => Math.max(H0 - k * Q * Q, 0);
-  const perdida = (Q) => perdidaCargaManguera(Q, longitudManguera, coeficienteManguera) * densidadRelativa;
-  const f = (Q) => desnivelM + perdida(Q) - alturaBomba(Q);
+  const perdidas = (Q) => {
+    let total = perdidaTendido(Q, tramos, densidadRelativa);
+    if (boquilla) total += presionBoquillaM(Q, boquilla.diametroMM, boquilla.cd) * densidadRelativa;
+    return total;
+  };
+  const f = (Q) => desnivelM + perdidas(Q) - alturaBomba(Q);
 
   let caudal = 0;
   if (desnivelM < H0 && f(0) < 0) {
@@ -102,10 +162,12 @@ export function estimarPuntoTrabajo({
     caudal = Math.min(caudal, caudalMaximoLMin);
   }
 
-  const perdidaFinal = perdida(caudal);
+  const perdidasFinal = perdidas(caudal);
+  const presionBoquillaFinal = boquilla ? presionBoquillaM(caudal, boquilla.diametroMM, boquilla.cd) : 0;
   return {
     caudalLMin: Math.round(caudal),
-    alturaManometricaTotal: Math.round((desnivelM + perdidaFinal) * 10) / 10,
-    perdidaCargaM: Math.round(perdidaFinal * 10) / 10,
+    alturaManometricaTotal: Math.round((desnivelM + perdidasFinal) * 10) / 10,
+    perdidaCargaM: Math.round((perdidasFinal - presionBoquillaFinal * densidadRelativa) * 10) / 10,
+    presionBoquillaBar: boquilla ? Math.round((presionBoquillaFinal / 10.2) * 100) / 100 : null,
   };
 }

@@ -21,7 +21,7 @@ export const catalogoMedios = [
     id: 'uro',
     nombre: 'Autobomba A/B URO (bomba Ruberg R-20)',
     uso: 'Agua limpia / baja presión. La más antigua en dotación, sin cuerpo de alta presión.',
-    succionMax: 8,
+    succionMax: 7.5, // ficha "Clasificación de equipos por capacidad de achique"
     alturaMaximaM: 244.8, // punto más alto de la ficha: 500 l/min a 24 bar
     caudalMaximoLMin: 2000, // 2000 l/min a 10 bar (máximo dato de la ficha)
     diametrosDisponibles: ['70', '45', '25'], // racores de salida BARCELONA
@@ -40,21 +40,27 @@ export const catalogoMedios = [
     id: 'iveco',
     nombre: 'Autobomba A/B IVECO (bomba Godiva WT2010)',
     uso: 'Uso general / contraincendios. Cebado automático por anillo de agua (<30 s con 9 m de mangote).',
-    succionMax: 8,
+    succionMax: 7.8, // ficha "Clasificación de equipos por capacidad de achique"
     diametrosDisponibles: ['70', '45', '25'], // racores de salida BARCELONA
     solidos: { apto: false },
     circuitos: [
       {
         id: 'baja',
         nombre: 'Baja presión (normal)',
-        caudalMaximoLMin: 3000, // 3000 l/min a 10 bar
-        curva: [{ altura: 102, caudal: 3000 }],
+        caudalMaximoLMin: 3400, // caudal máx. 3400 l/min a 2 bar
+        curva: [
+          { altura: 102, caudal: 2000 }, // caudal nominal 2000 l/min a 10 bar
+          { altura: 20.4, caudal: 3400 }, // caudal máx. 3400 l/min a 2 bar
+        ],
       },
       {
         id: 'alta',
         nombre: 'Alta presión',
-        caudalMaximoLMin: 350, // 350 l/min a 35 bar
-        curva: [{ altura: 357, caudal: 350 }],
+        caudalMaximoLMin: 750, // caudal máx. 750 l/min a 2 bar
+        curva: [
+          { altura: 357, caudal: 350 }, // caudal nominal 350 l/min a 35 bar
+          { altura: 20.4, caudal: 750 }, // caudal máx. 750 l/min a 2 bar
+        ],
       },
     ],
   },
@@ -65,29 +71,32 @@ export const catalogoMedios = [
     id: 'renault-scania',
     nombre: 'VMI Renault/Scania (bomba Rosenbauer NH45)',
     uso: 'Alto caudal y presión múltiple. La más moderna, vehículo multipropósito (LCIF).',
-    succionMax: 8,
+    succionMax: 7.5, // ficha "Clasificación de equipos por capacidad de achique"
     diametrosDisponibles: ['70', '45', '25'], // racores de salida BARCELONA
     solidos: { apto: false },
     circuitos: [
       {
         id: 'baja',
         nombre: 'Baja presión (normal)',
-        caudalMaximoLMin: 4500, // 4500 l/min a 10 bar
+        caudalMaximoLMin: 4500, // caudal nominal y máx. a 10 bar
         curva: [{ altura: 102, caudal: 4500 }],
       },
       {
         id: 'alta',
         nombre: 'Alta presión',
-        caudalMaximoLMin: 400, // 400 l/min a 40 bar
-        curva: [{ altura: 408, caudal: 400 }],
+        caudalMaximoLMin: 600, // caudal máx. 600 l/min a 35 bar
+        curva: [
+          { altura: 408, caudal: 250 }, // caudal nominal 250 l/min a 40 bar
+          { altura: 357, caudal: 600 }, // caudal máx. 600 l/min a 35 bar
+        ],
       },
     ],
   },
   {
     id: 'honda-wh75',
     nombre: 'Motobomba Honda WH-75 (dotación A/B IVECO)',
-    uso: 'Motobomba portátil de apoyo. Autoaspirante hasta 8 m, elevación máx. 75 m.',
-    succionMax: 8,
+    uso: 'Motobomba portátil de apoyo. Autoaspirante hasta 7,5 m, elevación máx. 75 m. Tolera partículas hasta 0,6 cm.',
+    succionMax: 7.5, // ficha "Clasificación de equipos por capacidad de achique"
     alturaMaximaM: 75, // elevación máxima del fabricante
     caudalMaximoLMin: 400, // caudal máx. 24.000 l/h (confirmado en tabla de racores a 4 bar)
     diametrosDisponibles: ['45', '25'], // racores de salida BARCELONA
@@ -102,13 +111,13 @@ export const catalogoMedios = [
     id: 'honda-wt30x',
     nombre: 'Motobomba Honda WT30X',
     uso: 'Aguas sucias / achique. Racores de 80 mm.',
-    succionMax: 8,
+    succionMax: 7.5, // ficha "Clasificación de equipos por capacidad de achique"
     alturaMaximaM: 25, // altura máx. de bombeo (ficha)
-    caudalMaximoLMin: 1200, // caudal máx. 1200 l/min (72.000 l/h)
+    caudalMaximoLMin: 1210, // caudal máx. 1210 l/min
     diametrosDisponibles: ['80'], // diámetro de orificio de succión/descarga de fábrica
-    solidos: { apto: true, detalle: 'Aguas sucias / achique (sin tamaño de sólido especificado en ficha)' },
+    solidos: { apto: true, detalle: 'Agua turbia, partículas hasta 3,1 cm' },
     curva: [
-      { altura: 3, caudal: 1200 },
+      { altura: 3, caudal: 1210 },
       { altura: 25, caudal: 60 }, // altura máx. de bombeo 25 m
     ],
   },
@@ -146,7 +155,7 @@ export const catalogoMedios = [
     id: 'embal',
     nombre: 'Equipo EMBAL (agua y lodos, sobre plataforma)',
     uso: 'Lodos y sólidos hasta 10 cm de diámetro. Distancia máx. aspiración-impulsión 200 m.',
-    succionMax: 8.8,
+    succionMax: 9, // ficha "Clasificación de equipos por capacidad de achique" (EMBAL Selwood S150)
     alturaMaximaM: 21.3, // altura de impulsión máxima (ficha, confirmada en tabla: 2,2 bar ≈ 22,4 m)
     caudalMaximoLMin: 5333, // capacidad máx. 320 m³/h
     diametrosDisponibles: ['100'], // manguera de dotación BARCELONA 4" (100 mm)
@@ -177,32 +186,33 @@ export const catalogoMedios = [
   {
     id: 'flygt-2660mt',
     nombre: 'Electrobomba sumergible Flygt 2660 MT',
-    uso: 'Sumergible. Bombea sólidos hasta 80 mm. Mayor caudal que la HT, menor altura.',
+    uso: 'Sumergible. Bombea sólidos hasta 1 cm. Mayor caudal que la HT, menor altura.',
     succionMax: null,
     sumergible: true,
-    alturaMaximaM: 38, // altura máx. modelo MT (ficha, confirmada en tabla: 3,8 bar ≈ 38,8 m)
-    caudalMaximoLMin: 4167, // 250 m³/h
+    alturaMaximaM: 36, // altura máx. modelo MT (ficha "Clasificación de equipos")
+    caudalMaximoLMin: 3360, // caudal máx. (ficha "Clasificación de equipos")
     diametrosDisponibles: ['150'], // racor de salida Storz 6"
-    solidos: { apto: true, detalle: 'Slurry, lodos y aguas residuales, sólidos hasta 80 mm' },
+    solidos: { apto: true, detalle: 'Agua turbia, sólidos hasta 1 cm' },
     curva: [
-      { altura: 5, caudal: 4000 },
-      { altura: 20, caudal: 2500 },
-      { altura: 38, caudal: 200 }, // altura máx. 38 m
+      { altura: 5, caudal: 3300 },
+      { altura: 20, caudal: 2200 },
+      { altura: 36, caudal: 200 }, // altura máx. 36 m
     ],
   },
   {
     id: 'rw2015',
     nombre: 'Electrobomba sumergible RW 2015.2M (aguas fecales)',
-    uso: 'Sumergible, monofásica 230V. Profundidad de inmersión hasta 11 m (máx. sumergible 20 m).',
+    uso: 'Sumergible, monofásica 230V. Profundidad de inmersión hasta 11 m (máx. sumergible 20 m). Partículas hasta 4,5 cm.',
     succionMax: null,
     sumergible: true,
-    caudalMaximoLMin: 150, // sin dato de caudal máximo explícito; 100 l/min a 10 m es el único punto oficial
+    alturaMaximaM: 11, // presión máxima 1,1 bar ≈ 11 m (ficha "Clasificación de equipos")
+    caudalMaximoLMin: 500, // caudal máx. 500 l/min (ficha "Clasificación de equipos")
     diametrosDisponibles: ['45'], // racor de salida BARCELONA
-    solidos: { apto: true, detalle: 'Aguas fecales, rodete tipo vórtice para sólidos, fibras y gases' },
+    solidos: { apto: true, detalle: 'Aguas fecales, rodete tipo vórtice, partículas hasta 4,5 cm' },
     curva: [
-      { altura: 5, caudal: 150 },
-      { altura: 10, caudal: 100 }, // único punto oficial de la ficha
-      { altura: 20, caudal: 20 },
+      { altura: 5, caudal: 400 },
+      { altura: 10, caudal: 100 }, // punto de la ficha original: 100 l/min a 10 m
+      { altura: 11, caudal: 20 },
     ],
   },
   {
@@ -246,18 +256,26 @@ export const turbobomba = {
 };
 
 // Diámetros de manguera disponibles y coeficiente de pérdida de carga
-// aproximado (bar por cada 100 m de manguera, para Q en l/min):
+// (bar por cada 100 m de manguera, para Q en l/min):
 //   pérdida(bar/100m) = coeficiente * (Q/100)^2
-// Los coeficientes son valores orientativos de referencia en bomberos/UME
-// y deben calibrarse con las curvas reales del manual cuando estén disponibles.
+// Los coeficientes de 25/45/70mm se han ajustado a la tabla real de pérdidas
+// de carga (UME): ~40 puntos (caudal, pérdida) muestran que pérdida =
+// c·Q² con muchísima precisión para los tres diámetros, y que a su vez
+// c = 5266,9 / d(mm)^5 (regresión log-log casi perfecta entre los tres
+// diámetros, pendiente -5,00). El resto de diámetros (50/80/100/150, sin
+// dato propio en la tabla) usan ese mismo ajuste d^-5 extrapolado.
 export const diametrosManguera = [
-  { id: '25', nombre: '25 mm', coeficiente: 0.9, caudalRecomendadoMax: 250 },
-  { id: '45', nombre: '45 mm', coeficiente: 0.15, caudalRecomendadoMax: 1000 },
-  { id: '50', nombre: '50 mm', coeficiente: 0.085, caudalRecomendadoMax: 1350 },
-  { id: '70', nombre: '70 mm', coeficiente: 0.03, caudalRecomendadoMax: 3000 },
-  { id: '80', nombre: '80 mm', coeficiente: 0.017, caudalRecomendadoMax: 3500 },
-  { id: '100', nombre: '100 mm (rígida/semirrígida)', coeficiente: 0.008, caudalRecomendadoMax: 6000 },
-  { id: '150', nombre: '150 mm (Storz 6" / rígida)', coeficiente: 0.002, caudalRecomendadoMax: 12000 },
+  { id: '25', nombre: '25 mm', coeficiente: 5.41, caudalRecomendadoMax: 250 },
+  { id: '45', nombre: '45 mm', coeficiente: 0.286, caudalRecomendadoMax: 1000 },
+  { id: '50', nombre: '50 mm', coeficiente: 0.16854, caudalRecomendadoMax: 1350 },
+  { id: '70', nombre: '70 mm', coeficiente: 0.03144, caudalRecomendadoMax: 3000 },
+  { id: '80', nombre: '80 mm', coeficiente: 0.016075, caudalRecomendadoMax: 3500 },
+  { id: '100', nombre: '100 mm (rígida/semirrígida)', coeficiente: 0.0052669, caudalRecomendadoMax: 6000 },
+  { id: '150', nombre: '150 mm (Storz 6" / rígida)', coeficiente: 0.0006936, caudalRecomendadoMax: 12000 },
 ];
+
+// Boquillas de lanza reguladora tipo SIDEINFO disponibles al final del
+// tendido, en mm de diámetro de orificio.
+export const boquillasSideinfo = [14, 16, 18, 20, 22, 24];
 
 export const LIMITE_SUCCION_GENERAL_M = 8;

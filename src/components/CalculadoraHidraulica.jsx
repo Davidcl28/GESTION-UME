@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { catalogoMedios, diametrosManguera, LIMITE_SUCCION_GENERAL_M } from '../data/equipos';
+import { boquillasSideinfo, catalogoMedios, diametrosManguera, LIMITE_SUCCION_GENERAL_M } from '../data/equipos';
 import { estimarPuntoTrabajo } from '../utils/hidraulica';
 import './CalculadoraHidraulica.css';
 
@@ -9,21 +9,22 @@ function diametrosDeEquipo(medio) {
   );
 }
 
+function tramoPorDefecto(diametroId, longitudM = 20) {
+  return { diametroId, longitudM };
+}
+
 export default function CalculadoraHidraulica() {
   const [medioId, setMedioId] = useState(catalogoMedios[0].id);
   const [alturaSuccion, setAlturaSuccion] = useState(3);
   const [alturaImpulsion, setAlturaImpulsion] = useState(7);
-  const [longitudManguera, setLongitudManguera] = useState(40);
-  const [diametroId, setDiametroId] = useState(catalogoMedios[0].diametrosDisponibles[0]);
+  const [tramos, setTramos] = useState([tramoPorDefecto(catalogoMedios[0].diametrosDisponibles[0], 40)]);
   const [circuitoId, setCircuitoId] = useState(catalogoMedios[0].circuitos?.[0]?.id ?? null);
   const [densidad, setDensidad] = useState(1.0);
+  const [usarSideinfo, setUsarSideinfo] = useState(false);
+  const [boquillaMM, setBoquillaMM] = useState(boquillasSideinfo[2]);
 
   const medio = useMemo(() => catalogoMedios.find((m) => m.id === medioId), [medioId]);
   const diametrosDelEquipo = useMemo(() => diametrosDeEquipo(medio), [medio]);
-  const diametro = useMemo(
-    () => diametrosDelEquipo.find((d) => d.id === diametroId) || diametrosDelEquipo[0],
-    [diametrosDelEquipo, diametroId]
-  );
   const circuito = useMemo(
     () => medio.circuitos?.find((c) => c.id === circuitoId) || medio.circuitos?.[0] || null,
     [medio, circuitoId]
@@ -34,28 +35,58 @@ export default function CalculadoraHidraulica() {
 
   // Al cambiar de equipo, se selecciona automáticamente el primer racor real
   // y el primer circuito de presión disponibles para ese equipo (no todos
-  // los equipos tienen los mismos, ni todos tienen varios circuitos).
+  // los equipos tienen los mismos, ni todos tienen varios circuitos), y el
+  // tendido se reinicia a un único tramo con ese racor.
   function cambiarMedio(nuevoMedioId) {
     setMedioId(nuevoMedioId);
     const nuevoMedio = catalogoMedios.find((m) => m.id === nuevoMedioId);
-    setDiametroId(diametrosDeEquipo(nuevoMedio)[0].id);
+    setTramos([tramoPorDefecto(diametrosDeEquipo(nuevoMedio)[0].id, 40)]);
     setCircuitoId(nuevoMedio.circuitos?.[0]?.id ?? null);
   }
 
+  function cambiarNumeroTramos(n) {
+    setTramos((prev) => {
+      const next = prev.slice(0, n);
+      while (next.length < n) {
+        const anterior = next[next.length - 1] || prev[0];
+        next.push(tramoPorDefecto(anterior.diametroId, 10));
+      }
+      return next;
+    });
+  }
+
+  function actualizarTramo(indice, cambios) {
+    setTramos((prev) => prev.map((t, i) => (i === indice ? { ...t, ...cambios } : t)));
+  }
+
+  const tramosResueltos = useMemo(
+    () =>
+      tramos.map((t) => {
+        const d = diametrosManguera.find((d) => d.id === t.diametroId) || diametrosManguera[0];
+        return { diametroMM: Number(d.id), coeficiente: d.coeficiente, longitudM: Number(t.longitudM) || 0, nombre: d.nombre, caudalRecomendadoMax: d.caudalRecomendadoMax };
+      }),
+    [tramos]
+  );
+
   const desnivelTotal = (Number(alturaSuccion) || 0) + (Number(alturaImpulsion) || 0);
+
+  const boquilla = useMemo(
+    () => (usarSideinfo ? { diametroMM: Number(boquillaMM), cd: 0.9 } : undefined),
+    [usarSideinfo, boquillaMM]
+  );
 
   const resultado = useMemo(
     () =>
       estimarPuntoTrabajo({
         curva: curvaActiva,
         desnivelM: desnivelTotal,
-        longitudManguera: Number(longitudManguera) || 0,
-        coeficienteManguera: diametro.coeficiente,
+        tramos: tramosResueltos,
         densidadRelativa: Number(densidad) || 1,
         alturaMaximaM,
         caudalMaximoLMin,
+        boquilla,
       }),
-    [curvaActiva, desnivelTotal, longitudManguera, diametro, densidad, alturaMaximaM, caudalMaximoLMin]
+    [curvaActiva, desnivelTotal, tramosResueltos, densidad, alturaMaximaM, caudalMaximoLMin, boquilla]
   );
 
   // La succión es un límite físico (presión atmosférica), no de potencia de la
@@ -79,7 +110,9 @@ export default function CalculadoraHidraulica() {
   const perdidaMostrada = succionImposible || impulsionImposible ? 0 : resultado.perdidaCargaM;
   const alturaTotalMostrada =
     succionImposible || impulsionImposible ? desnivelTotal : resultado.alturaManometricaTotal;
-  const caudalExcedeManguera = !caudalInviable && resultado.caudalLMin > diametro.caudalRecomendadoMax;
+  const tramoExcedido = !caudalInviable
+    ? tramosResueltos.find((t) => resultado.caudalLMin > t.caudalRecomendadoMax)
+    : null;
 
   return (
     <div>
@@ -137,22 +170,77 @@ export default function CalculadoraHidraulica() {
             onChange={(e) => setAlturaImpulsion(e.target.value)}
           />
 
-          <label>Distancia de mangueraje de impulsión (bomba → salida, m)</label>
-          <input
-            type="number"
-            min="0"
-            value={longitudManguera}
-            onChange={(e) => setLongitudManguera(e.target.value)}
-          />
-
-          <label>Diámetro de manguera / racor (racores reales de este equipo)</label>
-          <select value={diametroId} onChange={(e) => setDiametroId(e.target.value)}>
-            {diametrosDelEquipo.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.nombre}
+          <h4>Tendido de manguera</h4>
+          <p className="calc-hint">
+            Un tendido real casi nunca es de un solo diámetro: se ponen reducciones. Indique
+            cuántos tramos de diámetro distinto tiene, y el diámetro/longitud de cada uno, en
+            orden desde la bomba hasta la salida. Cada reducción entre tramos también se cuenta
+            como una pequeña pérdida de carga adicional.
+          </p>
+          <label>Número de tramos de diámetro distinto</label>
+          <select value={tramos.length} onChange={(e) => cambiarNumeroTramos(Number(e.target.value))}>
+            {[1, 2, 3, 4].map((n) => (
+              <option key={n} value={n}>
+                {n}
               </option>
             ))}
           </select>
+
+          {tramos.map((tramo, i) => (
+            <div key={i} className="calc-tramo">
+              <strong>
+                Tramo {i + 1}
+                {i === 0 ? ' (desde la bomba)' : ''}
+              </strong>
+              <div className="calc-tramo-campos">
+                <div>
+                  <label>Diámetro</label>
+                  <select
+                    value={tramo.diametroId}
+                    onChange={(e) => actualizarTramo(i, { diametroId: e.target.value })}
+                  >
+                    {(i === 0 ? diametrosDelEquipo : diametrosManguera).map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.nombre}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label>Longitud (m)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={tramo.longitudM}
+                    onChange={(e) => actualizarTramo(i, { longitudM: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+
+          <label className="calc-checkbox">
+            <input type="checkbox" checked={usarSideinfo} onChange={(e) => setUsarSideinfo(e.target.checked)} />
+            Añadir lanza reguladora SIDEINFO al final del tendido
+          </label>
+          {usarSideinfo && (
+            <>
+              <label>Boquilla (mm)</label>
+              <select value={boquillaMM} onChange={(e) => setBoquillaMM(Number(e.target.value))}>
+                {boquillasSideinfo.map((mm) => (
+                  <option key={mm} value={mm}>
+                    {mm} mm
+                  </option>
+                ))}
+              </select>
+              <p className="calc-hint">
+                Caudal y presión en la boquilla estimados por la ecuación clásica de orificio
+                (Q = Cd·0,667·d²·√P), calibrada con Cd≈0,9. Es un modelo físico estándar, no una
+                lectura literal de la tarjeta SIDEINFO: contrástelo con ella si necesita el alcance
+                exacto del chorro.
+              </p>
+            </>
+          )}
 
           <label>Densidad relativa del fluido (agua = 1.0)</label>
           <input
@@ -174,11 +262,17 @@ export default function CalculadoraHidraulica() {
             <strong>Altura geométrica (succión + impulsión):</strong> {desnivelTotal.toFixed(1)} m
           </p>
           <p>
-            <strong>Pérdida de carga en manguera:</strong> {perdidaMostrada} m
+            <strong>Pérdida de carga en el tendido:</strong> {perdidaMostrada} m
           </p>
           <p>
             <strong>Altura manométrica total resultante:</strong> {alturaTotalMostrada} m
           </p>
+          {usarSideinfo && !caudalInviable && (
+            <p>
+              <strong>Presión en la boquilla SIDEINFO ({boquillaMM} mm):</strong>{' '}
+              {resultado.presionBoquillaBar} bar
+            </p>
+          )}
           <p>
             <strong>Aplicación principal del equipo:</strong> {medio.uso}
           </p>
@@ -220,31 +314,34 @@ export default function CalculadoraHidraulica() {
             <p className="calc-danger">
               ⛔ Impulsión inviable: la altura geométrica ({desnivelTotal.toFixed(1)} m) ya supera la
               altura máxima de este {circuito ? 'circuito' : 'equipo'} ({alturaMaximaM} m), antes
-              incluso de contar la pérdida en manguera. Acerque el punto de vertido o use otro equipo.
+              incluso de contar la pérdida en el tendido. Acerque el punto de vertido o use otro
+              equipo.
             </p>
           )}
           {sinCaudalPorPerdida && (
             <p className="calc-danger">
-              ⛔ Sin caudal viable: la pérdida de carga en la manguera hace que la altura total
-              supere la máxima de la bomba. Reduzca la longitud de manguera o use un diámetro mayor.
+              ⛔ Sin caudal viable: la pérdida de carga en el tendido hace que la altura total
+              supere la máxima de la bomba. Reduzca la longitud de manguera o use diámetros mayores.
             </p>
           )}
-          {caudalExcedeManguera && (
+          {tramoExcedido && (
             <p className="calc-warning">
-              ⚠️ El caudal estimado supera el recomendado para manguera de {diametro.nombre} (máx.{' '}
-              {diametro.caudalRecomendadoMax} l/min). Valorar diámetro mayor o mangueraje en paralelo.
+              ⚠️ El caudal estimado supera el recomendado para el tramo de {tramoExcedido.nombre}{' '}
+              (máx. {tramoExcedido.caudalRecomendadoMax.toLocaleString('es-ES')} l/min). Valore un
+              diámetro mayor en ese tramo.
             </p>
           )}
-          {!caudalInviable && !caudalExcedeManguera && (
+          {!caudalInviable && !tramoExcedido && (
             <p className="calc-ok">✅ Punto de trabajo dentro de los límites recomendados.</p>
           )}
 
           <p className="calc-note">
             <em>Nota de campo:</em> el caudal se estima ajustando la curva característica de la
-            bomba (H = H0 − k·Q²) a los puntos oficiales de la ficha técnica, por lo que baja de
-            forma continua con la altura en todo el rango, no solo entre los puntos conocidos.
-            Evite trabajar en seco más de 3 minutos en bombas centrífugas convencionales. Calibre
-            los coeficientes de pérdida de manguera con datos reales cuando estén disponibles.
+            bomba (H = H0 − k·Q²) a los puntos oficiales de la ficha técnica. La pérdida de carga
+            en cada tramo usa la tabla real de pérdidas por diámetro (25/45/70 mm) extrapolada al
+            resto de diámetros; la pérdida en cada reducción es una estimación (no hay dato oficial
+            de racores de reducción en el manual). Evite trabajar en seco más de 3 minutos en
+            bombas centrífugas convencionales.
           </p>
         </div>
       </div>

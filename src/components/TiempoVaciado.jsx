@@ -53,17 +53,21 @@ export default function TiempoVaciado() {
     [largo, ancho, alturaAgua]
   );
 
+  const tramosResueltos = useMemo(
+    () => [{ diametroMM: Number(diametro.id), coeficiente: diametro.coeficiente, longitudM: Number(longitudManguera) || 0 }],
+    [diametro, longitudManguera]
+  );
+
   const puntoTrabajo = useMemo(
     () =>
       estimarPuntoTrabajo({
         curva: curvaActiva,
         desnivelM: Number(desnivel) || 0,
-        longitudManguera: Number(longitudManguera) || 0,
-        coeficienteManguera: diametro.coeficiente,
+        tramos: tramosResueltos,
         alturaMaximaM,
         caudalMaximoLMin,
       }),
-    [curvaActiva, desnivel, longitudManguera, diametro, alturaMaximaM, caudalMaximoLMin]
+    [curvaActiva, desnivel, tramosResueltos, alturaMaximaM, caudalMaximoLMin]
   );
 
   const resultado = useMemo(
