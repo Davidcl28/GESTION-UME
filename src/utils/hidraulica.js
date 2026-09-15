@@ -92,17 +92,23 @@ export function perdidaTendido(caudalLMin, tramos, densidadRelativa = 1) {
 }
 
 // Presión necesaria (m de columna de agua) en una lanza/boquilla reguladora
-// (tipo SIDEINFO) para entregar un caudal Q por un orificio de diámetro dado,
-// según la ecuación clásica de orificio: Q(l/min) = Cd·0,667·d²(mm)·√P(bar).
-// Cd (coeficiente de descarga) ≈ 0,9 es un valor típico de catálogo para
-// boquillas de bomberos de perfil suave; es un modelo físico estándar, no una
-// lectura literal de la tarjeta de la boquilla (que da caudal/alcance ya
-// medidos en banco, más precisos si se dispone de ellos).
-export function presionBoquillaM(caudalLMin, diametroBoquillaMM, cd = 0.9) {
-  const k = cd * 0.667 * diametroBoquillaMM * diametroBoquillaMM;
-  if (k <= 0 || caudalLMin <= 0) return 0;
-  const presionBar = (caudalLMin / k) ** 2;
+// tipo SIDEINFO para entregar un caudal dado, a partir del dato real de
+// fábrica de la boquilla (caudal(l/min) = k·√presión(bar), con k calibrada
+// directamente sobre el punto de rendimiento a presión máxima de la ficha:
+// ver boquillasSideinfo en data/equipos.js).
+export function presionBoquillaM(caudalLMin, boquilla) {
+  if (!boquilla || boquilla.k <= 0 || caudalLMin <= 0) return 0;
+  const presionBar = (caudalLMin / boquilla.k) ** 2;
   return presionBar * 10.2;
+}
+
+// Alcance del chorro (m) para una presión dada, aproximado a partir del único
+// punto de rendimiento conocido de la boquilla (a su presión máxima) con
+// alcance(P) ≈ alcanceMax·√(P/Pmax): no hay curva punto a punto completa,
+// pero esa es la tendencia que muestran las gráficas de la ficha SIDEINFO.
+export function alcanceBoquillaM(presionBar, boquilla) {
+  if (!boquilla || presionBar <= 0) return 0;
+  return boquilla.alcanceMaxM * Math.sqrt(presionBar / boquilla.presionMaxBar);
 }
 
 // Resuelve el punto de trabajo real (caudal estable en l/min) de un equipo
@@ -133,7 +139,7 @@ export function estimarPuntoTrabajo({
   densidadRelativa = 1,
   alturaMaximaM,
   caudalMaximoLMin,
-  boquilla, // opcional: { diametroMM, cd }
+  boquilla, // opcional: entrada de boquillasSideinfo (con su k precalculada)
 }) {
   const { H0: H0Ajustado, k } = ajustarCurvaCuadratica(curva);
   const H0 = alturaMaximaM != null ? Math.min(H0Ajustado, alturaMaximaM) : H0Ajustado;
@@ -141,7 +147,7 @@ export function estimarPuntoTrabajo({
   const alturaBomba = (Q) => Math.max(H0 - k * Q * Q, 0);
   const perdidas = (Q) => {
     let total = perdidaTendido(Q, tramos, densidadRelativa);
-    if (boquilla) total += presionBoquillaM(Q, boquilla.diametroMM, boquilla.cd) * densidadRelativa;
+    if (boquilla) total += presionBoquillaM(Q, boquilla) * densidadRelativa;
     return total;
   };
   const f = (Q) => desnivelM + perdidas(Q) - alturaBomba(Q);
@@ -163,11 +169,13 @@ export function estimarPuntoTrabajo({
   }
 
   const perdidasFinal = perdidas(caudal);
-  const presionBoquillaFinal = boquilla ? presionBoquillaM(caudal, boquilla.diametroMM, boquilla.cd) : 0;
+  const presionBoquillaFinal = boquilla ? presionBoquillaM(caudal, boquilla) : 0;
+  const presionBoquillaBar = boquilla ? Math.round((presionBoquillaFinal / 10.2) * 100) / 100 : null;
   return {
     caudalLMin: Math.round(caudal),
     alturaManometricaTotal: Math.round((desnivelM + perdidasFinal) * 10) / 10,
     perdidaCargaM: Math.round((perdidasFinal - presionBoquillaFinal * densidadRelativa) * 10) / 10,
-    presionBoquillaBar: boquilla ? Math.round((presionBoquillaFinal / 10.2) * 100) / 100 : null,
+    presionBoquillaBar,
+    alcanceBoquillaM: boquilla ? Math.round(alcanceBoquillaM(presionBoquillaBar, boquilla) * 10) / 10 : null,
   };
 }

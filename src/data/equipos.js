@@ -276,6 +276,24 @@ export const diametrosManguera = [
 
 // Boquillas de lanza reguladora tipo SIDEINFO disponibles al final del
 // tendido, en mm de diámetro de orificio.
-export const boquillasSideinfo = [14, 16, 18, 20, 22, 24];
+// Boquillas de lanza reguladora tipo SIDEINFO: datos reales de la ficha
+// (boquilla, presión máxima, caudal y alcance en ese punto). k es la
+// constante de la relación empírica caudal(l/min) = k·√presión(bar),
+// calculada a partir de ese punto real (Q/√P): es la misma forma que la
+// ecuación de orificio, pero calibrada directamente con el dato de fábrica
+// en vez de asumir un coeficiente de descarga teórico. El alcance a
+// presiones distintas de la máxima se aproxima como alcanceMaxM·√(P/PmaxBar)
+// (no hay curva punto a punto completa, solo el extremo de cada boquilla y
+// las gráficas de las que se ha tomado esta forma).
+export const boquillasSideinfo = [
+  { mm: 10, presionMaxBar: 4, caudalMaxLMin: 170, alcanceMaxM: 27.5 },
+  { mm: 12, presionMaxBar: 4, caudalMaxLMin: 180, alcanceMaxM: 28 },
+  { mm: 14, presionMaxBar: 4, caudalMaxLMin: 245, alcanceMaxM: 31 },
+  { mm: 16, presionMaxBar: 4.5, caudalMaxLMin: 340, alcanceMaxM: 36 },
+  { mm: 18, presionMaxBar: 5, caudalMaxLMin: 454, alcanceMaxM: 37.5 },
+  { mm: 20, presionMaxBar: 5, caudalMaxLMin: 617, alcanceMaxM: 38.5 },
+  { mm: 22, presionMaxBar: 5, caudalMaxLMin: 735, alcanceMaxM: 39.5 },
+  { mm: 24, presionMaxBar: 5, caudalMaxLMin: 858, alcanceMaxM: 41 },
+].map((b) => ({ ...b, k: b.caudalMaxLMin / Math.sqrt(b.presionMaxBar) }));
 
 export const LIMITE_SUCCION_GENERAL_M = 8;

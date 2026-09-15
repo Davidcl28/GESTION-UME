@@ -21,7 +21,7 @@ export default function CalculadoraHidraulica() {
   const [circuitoId, setCircuitoId] = useState(catalogoMedios[0].circuitos?.[0]?.id ?? null);
   const [densidad, setDensidad] = useState(1.0);
   const [usarSideinfo, setUsarSideinfo] = useState(false);
-  const [boquillaMM, setBoquillaMM] = useState(boquillasSideinfo[2]);
+  const [boquillaMM, setBoquillaMM] = useState(boquillasSideinfo[2].mm);
 
   const medio = useMemo(() => catalogoMedios.find((m) => m.id === medioId), [medioId]);
   const diametrosDelEquipo = useMemo(() => diametrosDeEquipo(medio), [medio]);
@@ -71,7 +71,7 @@ export default function CalculadoraHidraulica() {
   const desnivelTotal = (Number(alturaSuccion) || 0) + (Number(alturaImpulsion) || 0);
 
   const boquilla = useMemo(
-    () => (usarSideinfo ? { diametroMM: Number(boquillaMM), cd: 0.9 } : undefined),
+    () => (usarSideinfo ? boquillasSideinfo.find((b) => b.mm === boquillaMM) : undefined),
     [usarSideinfo, boquillaMM]
   );
 
@@ -113,6 +113,8 @@ export default function CalculadoraHidraulica() {
   const tramoExcedido = !caudalInviable
     ? tramosResueltos.find((t) => resultado.caudalLMin > t.caudalRecomendadoMax)
     : null;
+  const boquillaFueraDeRango =
+    !caudalInviable && boquilla && resultado.presionBoquillaBar > boquilla.presionMaxBar;
 
   return (
     <div>
@@ -227,17 +229,17 @@ export default function CalculadoraHidraulica() {
             <>
               <label>Boquilla (mm)</label>
               <select value={boquillaMM} onChange={(e) => setBoquillaMM(Number(e.target.value))}>
-                {boquillasSideinfo.map((mm) => (
-                  <option key={mm} value={mm}>
-                    {mm} mm
+                {boquillasSideinfo.map((b) => (
+                  <option key={b.mm} value={b.mm}>
+                    {b.mm} mm (máx. {b.presionMaxBar} bar → {b.caudalMaxLMin} l/min, {b.alcanceMaxM} m)
                   </option>
                 ))}
               </select>
               <p className="calc-hint">
-                Caudal y presión en la boquilla estimados por la ecuación clásica de orificio
-                (Q = Cd·0,667·d²·√P), calibrada con Cd≈0,9. Es un modelo físico estándar, no una
-                lectura literal de la tarjeta SIDEINFO: contrástelo con ella si necesita el alcance
-                exacto del chorro.
+                Caudal calibrado con el punto real de la ficha SIDEINFO para esta boquilla (caudal
+                = k·√presión, con k ajustada a su dato de presión/caudal máximos). El alcance a
+                presiones distintas de la máxima se aproxima igual (alcance ≈ alcanceMáx·√(P/Pmáx)):
+                no hay curva punto a punto completa, solo el extremo de cada boquilla.
               </p>
             </>
           )}
@@ -269,8 +271,8 @@ export default function CalculadoraHidraulica() {
           </p>
           {usarSideinfo && !caudalInviable && (
             <p>
-              <strong>Presión en la boquilla SIDEINFO ({boquillaMM} mm):</strong>{' '}
-              {resultado.presionBoquillaBar} bar
+              <strong>Boquilla SIDEINFO {boquillaMM} mm:</strong> {resultado.presionBoquillaBar} bar
+              · alcance estimado {resultado.alcanceBoquillaM} m
             </p>
           )}
           <p>
@@ -331,7 +333,15 @@ export default function CalculadoraHidraulica() {
               diámetro mayor en ese tramo.
             </p>
           )}
-          {!caudalInviable && !tramoExcedido && (
+          {boquillaFueraDeRango && (
+            <p className="calc-warning">
+              ⚠️ La presión que necesita la boquilla ({resultado.presionBoquillaBar} bar) supera
+              con creces su máximo de ficha ({boquilla.presionMaxBar} bar): el equipo elegido es
+              demasiado potente para esta boquilla. El alcance mostrado es una extrapolación poco
+              fiable; use una boquilla mayor o reduzca el caudal disponible.
+            </p>
+          )}
+          {!caudalInviable && !tramoExcedido && !boquillaFueraDeRango && (
             <p className="calc-ok">✅ Punto de trabajo dentro de los límites recomendados.</p>
           )}
 
