@@ -102,9 +102,16 @@ export const catalogoMedios = [
     diametrosDisponibles: ['45', '25'], // racores de salida BARCELONA
     solidos: { apto: false },
     curva: [
-      { altura: 5, caudal: 400 },
-      { altura: 40.8, caudal: 400 }, // 4 bar → 400 l/min (tabla de racores UA02)
-      { altura: 75, caudal: 40 }, // elevación máxima del fabricante
+      // Puntos leídos de la curva de rendimiento real (BIEM, ficha VH75):
+      // a 400 l/min la altura manométrica es prácticamente nula, no 40,8 m
+      // como sugería la tabla de racores (esa tabla da el caudal a una
+      // presión de salida fija, no la curva altura-caudal real de la bomba).
+      { altura: 3, caudal: 400 },
+      { altura: 20, caudal: 300 },
+      { altura: 38, caudal: 200 },
+      { altura: 55, caudal: 100 },
+      { altura: 67, caudal: 10 },
+      { altura: 75, caudal: 0 }, // elevación máxima del fabricante
     ],
   },
   {
@@ -210,9 +217,19 @@ export const catalogoMedios = [
     diametrosDisponibles: ['45'], // racor de salida BARCELONA
     solidos: { apto: true, detalle: 'Aguas fecales, rodete tipo vórtice, partículas hasta 4,5 cm' },
     curva: [
-      { altura: 5, caudal: 400 },
-      { altura: 10, caudal: 100 }, // punto de la ficha original: 100 l/min a 10 m
-      { altura: 11, caudal: 20 },
+      // Puntos reales de la tabla "Portata-Capacity-Débit" de la ficha RW2015.2M.
+      { altura: 10.5, caudal: 50 },
+      { altura: 9.8, caudal: 100 },
+      { altura: 8.3, caudal: 150 },
+      { altura: 7.9, caudal: 200 },
+      { altura: 6.9, caudal: 225 },
+      { altura: 6.3, caudal: 250 },
+      { altura: 5.8, caudal: 275 },
+      { altura: 5.3, caudal: 300 },
+      { altura: 4.9, caudal: 325 },
+      { altura: 4.3, caudal: 350 },
+      { altura: 3.9, caudal: 375 },
+      { altura: 3, caudal: 400 },
     ],
   },
   {
@@ -238,6 +255,24 @@ export const catalogoMedios = [
     diametrosDisponibles: ['45'], // racor de salida BARCELONA (aspiración NPSH/Storz 50mm con adaptador)
     solidos: { apto: false },
     curva: [{ altura: 20.4, caudal: 350 }], // 2 bar → 350 l/min (único dato oficial)
+  },
+  {
+    id: 'black-panther-bp4',
+    nombre: 'Motobomba Black Panther BP4',
+    uso: 'Alta presión: eleva la presión al final de un tendido largo, o alimenta directamente una lanza SIDEINFO (boquilla de hasta 10 mm) tomando agua de un depósito portátil o de la cisterna. No superar 100 l/min si se usa en punta de lanza.',
+    succionMax: undefined, // la ficha marca este dato como no aplicable; se usa el límite general de 8 m
+    alturaMaximaM: 260, // altura máx. de impulsión de la ficha (≈26,2 bar)
+    caudalMaximoLMin: 370, // caudal máx. de la ficha
+    diametrosDisponibles: ['45', '25'], // no especificado en la ficha (BIEM), aproximado por racores UME habituales
+    solidos: { apto: false },
+    curva: [
+      // Puntos aproximados leídos de la gráfica de rendimiento de la ficha
+      // (BIEM, sin tabla de datos numérica), calibrados a los extremos
+      // reales de la ficha: caudal máx. 370 l/min y altura máx. 260 m.
+      { altura: 20, caudal: 370 },
+      { altura: 145, caudal: 160 },
+      { altura: 260, caudal: 2 },
+    ],
   },
 ];
 
