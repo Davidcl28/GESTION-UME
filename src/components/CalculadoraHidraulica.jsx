@@ -29,6 +29,8 @@ export default function CalculadoraHidraulica() {
     [medio, circuitoId]
   );
   const curvaActiva = circuito ? circuito.curva : medio.curva;
+  const alturaMaximaM = circuito ? circuito.alturaMaximaM : medio.alturaMaximaM;
+  const caudalMaximoLMin = circuito ? circuito.caudalMaximoLMin : medio.caudalMaximoLMin;
 
   // Al cambiar de equipo, se selecciona automáticamente el primer racor real
   // y el primer circuito de presión disponibles para ese equipo (no todos
@@ -50,8 +52,10 @@ export default function CalculadoraHidraulica() {
         longitudManguera: Number(longitudManguera) || 0,
         coeficienteManguera: diametro.coeficiente,
         densidadRelativa: Number(densidad) || 1,
+        alturaMaximaM,
+        caudalMaximoLMin,
       }),
-    [curvaActiva, desnivelTotal, longitudManguera, diametro, densidad]
+    [curvaActiva, desnivelTotal, longitudManguera, diametro, densidad, alturaMaximaM, caudalMaximoLMin]
   );
 
   // La succión es un límite físico (presión atmosférica), no de potencia de la
@@ -65,10 +69,17 @@ export default function CalculadoraHidraulica() {
   const succionImposible = !medio.sumergible && Number(alturaSuccion) > limiteSuccionAplicable;
   const succionExcedida = medio.succionMax != null && Number(alturaSuccion) > medio.succionMax;
   const limiteGeneralExcedido = !medio.sumergible && Number(alturaSuccion) > LIMITE_SUCCION_GENERAL_M;
-  const caudalMostrado = succionImposible ? 0 : resultado.caudalLMin;
-  const perdidaMostrada = succionImposible ? 0 : resultado.perdidaCargaM;
-  const alturaTotalMostrada = succionImposible ? desnivelTotal : resultado.alturaManometricaTotal;
-  const caudalExcedeManguera = !succionImposible && resultado.caudalLMin > diametro.caudalRecomendadoMax;
+  // La altura de impulsión (o el conjunto succión+impulsión) sí puede superar
+  // la presión máxima que da la bomba: a diferencia de la succión, no es un
+  // límite físico universal, sino el propio de cada equipo.
+  const impulsionImposible = !succionImposible && alturaMaximaM != null && desnivelTotal >= alturaMaximaM;
+  const sinCaudalPorPerdida = !succionImposible && !impulsionImposible && resultado.caudalLMin === 0;
+  const caudalInviable = succionImposible || impulsionImposible || sinCaudalPorPerdida;
+  const caudalMostrado = caudalInviable ? 0 : resultado.caudalLMin;
+  const perdidaMostrada = succionImposible || impulsionImposible ? 0 : resultado.perdidaCargaM;
+  const alturaTotalMostrada =
+    succionImposible || impulsionImposible ? desnivelTotal : resultado.alturaManometricaTotal;
+  const caudalExcedeManguera = !caudalInviable && resultado.caudalLMin > diametro.caudalRecomendadoMax;
 
   return (
     <div>
@@ -172,6 +183,23 @@ export default function CalculadoraHidraulica() {
             <strong>Aplicación principal del equipo:</strong> {medio.uso}
           </p>
 
+          <div className="calc-limites">
+            <strong>Límites de este {circuito ? `circuito (${circuito.nombre})` : 'equipo'}:</strong>
+            <ul>
+              <li>
+                Succión máxima: {medio.sumergible ? 'no aplica (sumergible)' : `${medio.succionMax ?? LIMITE_SUCCION_GENERAL_M} m`}
+              </li>
+              <li>Altura de impulsión máxima: {alturaMaximaM != null ? `${alturaMaximaM} m` : 'sin dato oficial (estimada)'}</li>
+              <li>Caudal máximo de ficha: {caudalMaximoLMin != null ? `${caudalMaximoLMin.toLocaleString('es-ES')} l/min` : 'sin dato oficial'}</li>
+            </ul>
+            {medio.solidos?.apto && (
+              <p className="calc-badge-solidos">🪣 Apto para lodos/sólidos{medio.solidos.detalle ? `: ${medio.solidos.detalle}` : ''}</p>
+            )}
+            {medio.solidos && !medio.solidos.apto && (
+              <p className="calc-badge-limpia">💧 Solo agua limpia (no diseñada para lodos o sólidos)</p>
+            )}
+          </div>
+
           <hr />
 
           {succionImposible && succionExcedida && (
@@ -188,13 +216,26 @@ export default function CalculadoraHidraulica() {
               aspirar por encima de esa altura: acerque la bomba al agua o sumérjala.
             </p>
           )}
+          {impulsionImposible && (
+            <p className="calc-danger">
+              ⛔ Impulsión inviable: la altura geométrica ({desnivelTotal.toFixed(1)} m) ya supera la
+              altura máxima de este {circuito ? 'circuito' : 'equipo'} ({alturaMaximaM} m), antes
+              incluso de contar la pérdida en manguera. Acerque el punto de vertido o use otro equipo.
+            </p>
+          )}
+          {sinCaudalPorPerdida && (
+            <p className="calc-danger">
+              ⛔ Sin caudal viable: la pérdida de carga en la manguera hace que la altura total
+              supere la máxima de la bomba. Reduzca la longitud de manguera o use un diámetro mayor.
+            </p>
+          )}
           {caudalExcedeManguera && (
             <p className="calc-warning">
               ⚠️ El caudal estimado supera el recomendado para manguera de {diametro.nombre} (máx.{' '}
               {diametro.caudalRecomendadoMax} l/min). Valorar diámetro mayor o mangueraje en paralelo.
             </p>
           )}
-          {!succionImposible && !caudalExcedeManguera && (
+          {!caudalInviable && !caudalExcedeManguera && (
             <p className="calc-ok">✅ Punto de trabajo dentro de los límites recomendados.</p>
           )}
 

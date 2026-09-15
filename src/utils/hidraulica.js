@@ -62,8 +62,25 @@ export function perdidaCargaManguera(caudalLMin, longitudM, coeficiente) {
 // pérdida de carga inicial estimada es muy superior a la altura máxima de la
 // bomba (típico con curvas de un solo punto, como los circuitos de alta
 // presión de algunas autobombas).
-export function estimarPuntoTrabajo({ curva, desnivelM, longitudManguera, coeficienteManguera, densidadRelativa = 1 }) {
-  const { H0, k } = ajustarCurvaCuadratica(curva);
+// alturaMaximaM y caudalMaximoLMin (opcionales) son topes duros tomados
+// literalmente de la ficha del equipo (p.ej. "altura máx. de bombeo 25 m" o
+// "caudal máximo 1200 l/min"). El ajuste cuadrático es solo una estimación
+// entre/más allá de los puntos oficiales, y a alturas muy bajas puede
+// proyectar un caudal por encima del máximo real de la bomba (limitada
+// mecánicamente por el propio rodete, no solo por la presión); estos topes
+// evitan que la calculadora muestre un punto de trabajo que la ficha
+// descarta explícitamente.
+export function estimarPuntoTrabajo({
+  curva,
+  desnivelM,
+  longitudManguera,
+  coeficienteManguera,
+  densidadRelativa = 1,
+  alturaMaximaM,
+  caudalMaximoLMin,
+}) {
+  const { H0: H0Ajustado, k } = ajustarCurvaCuadratica(curva);
+  const H0 = alturaMaximaM != null ? Math.min(H0Ajustado, alturaMaximaM) : H0Ajustado;
 
   const alturaBomba = (Q) => Math.max(H0 - k * Q * Q, 0);
   const perdida = (Q) => perdidaCargaManguera(Q, longitudManguera, coeficienteManguera) * densidadRelativa;
@@ -79,6 +96,10 @@ export function estimarPuntoTrabajo({ curva, desnivelM, longitudManguera, coefic
       else lo = mid;
     }
     caudal = (lo + hi) / 2;
+  }
+
+  if (caudalMaximoLMin != null) {
+    caudal = Math.min(caudal, caudalMaximoLMin);
   }
 
   const perdidaFinal = perdida(caudal);

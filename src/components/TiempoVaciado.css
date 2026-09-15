@@ -69,3 +69,19 @@
   font-size: 13px;
   color: #aaa;
 }
+
+.vaciado-danger {
+  color: #ff6b6b;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.vaciado-badge-solidos {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  background-color: #3d2e1e;
+  border: 1px solid #6a4a2a;
+  border-radius: 4px;
+  color: #e0a45c;
+  font-size: 13px;
+}

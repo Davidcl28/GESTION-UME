@@ -34,6 +34,8 @@ export default function TiempoVaciado() {
     [medio, circuitoId]
   );
   const curvaActiva = circuito ? circuito.curva : medio.curva;
+  const alturaMaximaM = circuito ? circuito.alturaMaximaM : medio.alturaMaximaM;
+  const caudalMaximoLMin = circuito ? circuito.caudalMaximoLMin : medio.caudalMaximoLMin;
 
   // Al cambiar de equipo, se selecciona automáticamente el primer racor real
   // y el primer circuito de presión disponibles para ese equipo.
@@ -43,6 +45,8 @@ export default function TiempoVaciado() {
     setDiametroId(diametrosDeEquipo(nuevoMedio)[0].id);
     setCircuitoId(nuevoMedio.circuitos?.[0]?.id ?? null);
   }
+
+  const desnivelSuperaMaximo = alturaMaximaM != null && (Number(desnivel) || 0) >= alturaMaximaM;
 
   const volumenM3 = useMemo(
     () => calcularVolumenM3(Number(largo) || 0, Number(ancho) || 0, Number(alturaAgua) || 0),
@@ -56,8 +60,10 @@ export default function TiempoVaciado() {
         desnivelM: Number(desnivel) || 0,
         longitudManguera: Number(longitudManguera) || 0,
         coeficienteManguera: diametro.coeficiente,
+        alturaMaximaM,
+        caudalMaximoLMin,
       }),
-    [curvaActiva, desnivel, longitudManguera, diametro]
+    [curvaActiva, desnivel, longitudManguera, diametro, alturaMaximaM, caudalMaximoLMin]
   );
 
   const resultado = useMemo(
@@ -166,11 +172,26 @@ export default function TiempoVaciado() {
           </p>
           <p>
             <strong>Caudal por equipo:</strong> {puntoTrabajo.caudalLMin} l/min
+            {caudalMaximoLMin != null && ` (máx. de ficha: ${caudalMaximoLMin.toLocaleString('es-ES')} l/min)`}
           </p>
           <p>
             <strong>Caudal total ({numEquipos} equipo{Number(numEquipos) > 1 ? 's' : ''} · {factorEficiencia}% eficiencia):</strong>{' '}
             {resultado.caudalTotalLMin} l/min
           </p>
+
+          {desnivelSuperaMaximo && (
+            <p className="vaciado-danger">
+              ⛔ El desnivel introducido ({desnivel} m) supera la altura máxima de este{' '}
+              {circuito ? 'circuito' : 'equipo'} ({alturaMaximaM} m): con este equipo no se podría
+              evacuar hasta ese punto.
+            </p>
+          )}
+          {medio.solidos?.apto && (
+            <p className="vaciado-badge-solidos">
+              🪣 Apto para lodos/sólidos{medio.solidos.detalle ? `: ${medio.solidos.detalle}` : ''}
+            </p>
+          )}
+
           <hr />
           <p className="vaciado-tiempo">
             <strong>Tiempo estimado:</strong> {formatearDuracion(resultado.tiempoMinutos)}
