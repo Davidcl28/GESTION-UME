@@ -38,28 +38,54 @@ function crearNodoHoja(diametroId, longitudM = 20) {
   };
 }
 
-function cambiarNumeroTramosNodo(nodo, n) {
-  const next = nodo.tramos.slice(0, n);
-  while (next.length < n) {
-    const anterior = next[next.length - 1] || nodo.tramos[0];
-    next.push(tramoPorDefecto(anterior.diametroId, 10));
-  }
-  return { ...nodo, tramos: next };
-}
-
 function actualizarTramoNodo(nodo, indice, cambios) {
   return { ...nodo, tramos: nodo.tramos.map((t, i) => (i === indice ? { ...t, ...cambios } : t)) };
 }
 
-function cambiarBifurcacion(nodo, n) {
-  if (n === 0) return { ...nodo, bifurcacion: null };
-  const ramasActuales = nodo.bifurcacion?.ramas || [];
-  const ramas = ramasActuales.slice(0, n);
-  while (ramas.length < n) {
-    const ultimoDiametro = nodo.tramos[nodo.tramos.length - 1]?.diametroId || '45';
-    ramas.push(crearNodoHoja(ultimoDiametro, 20));
-  }
-  return { ...nodo, bifurcacion: { ramas } };
+function añadirTramoNodo(nodo) {
+  const ultimo = nodo.tramos[nodo.tramos.length - 1];
+  return { ...nodo, tramos: [...nodo.tramos, tramoPorDefecto(ultimo.diametroId, 20)] };
+}
+
+function quitarUltimoTramoNodo(nodo) {
+  if (nodo.tramos.length <= 1) return nodo;
+  return { ...nodo, tramos: nodo.tramos.slice(0, -1) };
+}
+
+function sumaLongitudHasta(tramos, indice) {
+  return tramos.slice(0, indice + 1).reduce((s, t) => s + (Number(t.longitudM) || 0), 0);
+}
+
+// Bifurca el tendido a una distancia dada desde el inicio del tramo
+// "indice" (puede ser antes de su final: así se puede poner la
+// bifurcación a mitad de un tramo largo, p. ej. a los 50 m de uno de
+// 100, sin tener que haberlo metido ya partido en dos). El propio tramo
+// se recorta a esa distancia; lo que quedaba de él (el resto de su
+// longitud), los tramos siguientes que ya hubiera, y la lanza que ya
+// tuviera configurada este nodo, pasan a ser la primera rama (la
+// continuación recta); se añaden n-1 ramas nuevas (vacías) para las
+// salidas nuevas.
+function bifurcarEnTramo(nodo, indice, n, distanciaM) {
+  const tramo = nodo.tramos[indice];
+  const longitudTotal = Number(tramo.longitudM) || 0;
+  const distancia = Math.min(Math.max(Number(distanciaM) || 0, 0), longitudTotal);
+  const remanente = longitudTotal - distancia;
+
+  const tramosAntes = [...nodo.tramos.slice(0, indice), { ...tramo, longitudM: distancia }];
+  const restoTramosOriginal = nodo.tramos.slice(indice + 1);
+  const tramosDespues = remanente > 0 ? [{ diametroId: tramo.diametroId, longitudM: remanente }, ...restoTramosOriginal] : restoTramosOriginal;
+
+  const huboAlgoDespues = tramosDespues.length > 0 || nodo.usarSideinfo;
+  const primeraRama = huboAlgoDespues
+    ? { tramos: tramosDespues, desnivelPropio: 0, bifurcacion: null, usarSideinfo: nodo.usarSideinfo, boquillaMM: nodo.boquillaMM }
+    : crearNodoHoja(tramo.diametroId, 20);
+  const ramas = [primeraRama];
+  while (ramas.length < n) ramas.push(crearNodoHoja(tramo.diametroId, 20));
+  return { tramos: tramosAntes, desnivelPropio: nodo.desnivelPropio, bifurcacion: { ramas }, usarSideinfo: false, boquillaMM: boquillasSideinfo[2].mm };
+}
+
+function quitarBifurcacion(nodo) {
+  return { ...nodo, bifurcacion: null };
 }
 
 function actualizarRama(nodo, indice, nuevaRama) {
@@ -124,65 +150,117 @@ function succionInfo(medio, succionValor) {
   return { imposible, excedida, limiteGeneralExcedido, limiteAplicable };
 }
 
-const NUMEROS_TRAMO = [1, 2, 3, 4, 5, 6];
-
-// Editor recursivo de un nodo del árbol de tendido: sus propios tramos de
-// manguera y, opcionalmente, una bifurcación en 2-3 salidas, cada una
-// renderizada con el mismo componente (puede volver a bifurcarse).
+// Editor recursivo de un nodo del árbol de tendido. Los tramos se añaden
+// uno a uno (pueden ser del mismo diámetro que el anterior, p. ej. varias
+// mangueras seguidas resumidas en uno solo más largo, o de uno distinto,
+// p. ej. una reducción): justo después de CADA tramo se puede decidir si
+// el tendido sigue, termina ahí (lanza o salida abierta), o se bifurca o
+// trifurca - y a qué distancia exacta dentro de ese tramo, aunque sea a
+// mitad de uno largo (p. ej. a los 50 m de un tramo de 100): no hace
+// falta meterlo ya partido en dos, la app lo recorta sola.
 function EditorNodo({ nodo, onChange, diametrosPrimerTramo, titulo }) {
+  const [pendiente, setPendiente] = useState(null); // { indice, n, distancia } | null
+
+  function elegirDespuesDeTramo(indice, valor, longitudTramo) {
+    if (valor === 'seguir') {
+      setPendiente(null);
+      return;
+    }
+    const n = valor === 'bifurca3' ? 3 : 2;
+    setPendiente({ indice, n, distancia: longitudTramo });
+  }
+
+  function confirmarBifurcacion() {
+    if (!pendiente) return;
+    onChange(bifurcarEnTramo(nodo, pendiente.indice, pendiente.n, pendiente.distancia));
+    setPendiente(null);
+  }
+
   return (
     <div className="calc-tramo calc-nodo">
       <strong>{titulo}</strong>
-
-      <label>Número de tramos de diámetro distinto en este tendido</label>
-      <select value={nodo.tramos.length} onChange={(e) => onChange(cambiarNumeroTramosNodo(nodo, Number(e.target.value)))}>
-        {NUMEROS_TRAMO.map((n) => (
-          <option key={n} value={n}>
-            {n}
-          </option>
-        ))}
-      </select>
       <p className="calc-hint">
-        Si varias mangueras seguidas tienen el mismo diámetro, no hace falta meterlas una a una: sume sus
-        longitudes en un solo tramo (p. ej. 20 mangueras de 25 m del mismo diámetro = un tramo de 500 m).
+        Añada los tramos de este tendido en orden, del mismo diámetro que el anterior o de uno distinto
+        (p. ej. una reducción). Justo después de cualquiera de ellos puede decidir si se bifurca o trifurca, y
+        a qué distancia exacta: por ejemplo, para bifurcar a los 50 m de un tramo de 100 m, no hace falta
+        meterlo ya partido en dos tramos de 50 - indique 100 m y, al elegir que se bifurca, escriba 50 como
+        distancia.
       </p>
 
       {nodo.tramos.map((tramo, i) => (
-        <div key={i} className="calc-tramo-campos">
-          <div>
-            <label>Diámetro {i === 0 ? '' : `(tramo ${i + 1})`}</label>
-            <select value={tramo.diametroId} onChange={(e) => onChange(actualizarTramoNodo(nodo, i, { diametroId: e.target.value }))}>
-              {(i === 0 ? diametrosPrimerTramo : diametrosManguera).map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.nombre}
-                </option>
-              ))}
-            </select>
+        <div key={i} className="calc-nodo-tramo">
+          <div className="calc-tramo-campos">
+            <div>
+              <label>Diámetro {i === 0 ? '' : `(tramo ${i + 1})`}</label>
+              <select value={tramo.diametroId} onChange={(e) => onChange(actualizarTramoNodo(nodo, i, { diametroId: e.target.value }))}>
+                {(i === 0 ? diametrosPrimerTramo : diametrosManguera).map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nombre}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label>Longitud (m)</label>
+              <input
+                type="number"
+                min="0"
+                value={tramo.longitudM}
+                onChange={(e) => onChange(actualizarTramoNodo(nodo, i, { longitudM: e.target.value }))}
+              />
+            </div>
           </div>
-          <div>
-            <label>Longitud (m)</label>
-            <input
-              type="number"
-              min="0"
-              value={tramo.longitudM}
-              onChange={(e) => onChange(actualizarTramoNodo(nodo, i, { longitudM: e.target.value }))}
-            />
-          </div>
+          {!nodo.bifurcacion && (
+            <>
+              <label>¿Qué hay después de este tramo (a los {sumaLongitudHasta(nodo.tramos, i)} m desde la bomba)?</label>
+              <select
+                value={pendiente?.indice === i ? (pendiente.n === 3 ? 'bifurca3' : 'bifurca2') : 'seguir'}
+                onChange={(e) => elegirDespuesDeTramo(i, e.target.value, tramo.longitudM)}
+              >
+                <option value="seguir">{i === nodo.tramos.length - 1 ? 'Fin (lanza o salida abierta)' : 'Nada, sigue con el siguiente tramo'}</option>
+                <option value="bifurca2">Se bifurca en 2 salidas</option>
+                <option value="bifurca3">Se bifurca en 3 salidas</option>
+              </select>
+              {pendiente?.indice === i && (
+                <div className="calc-bifurcacion-pendiente">
+                  <label>¿A qué distancia del inicio de este tramo (de {tramo.longitudM} m en total)?</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={tramo.longitudM}
+                    value={pendiente.distancia}
+                    onChange={(e) => setPendiente({ ...pendiente, distancia: e.target.value })}
+                  />
+                  <div className="calc-tramo-acciones">
+                    <button type="button" onClick={confirmarBifurcacion}>
+                      ✓ Confirmar bifurcación aquí
+                    </button>
+                    <button type="button" onClick={() => setPendiente(null)}>
+                      ✕ Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       ))}
 
+      {!nodo.bifurcacion && (
+        <div className="calc-tramo-acciones">
+          <button type="button" onClick={() => onChange(añadirTramoNodo(nodo))}>
+            + Añadir otro tramo
+          </button>
+          {nodo.tramos.length > 1 && (
+            <button type="button" onClick={() => onChange(quitarUltimoTramoNodo(nodo))}>
+              ✕ Quitar el último tramo
+            </button>
+          )}
+        </div>
+      )}
+
       <label>Desnivel propio de este tendido (m, p. ej. si sube escaleras)</label>
       <input type="number" value={nodo.desnivelPropio} onChange={(e) => onChange({ ...nodo, desnivelPropio: e.target.value })} />
-
-      <label>¿Qué hay al final de este tendido?</label>
-      <select
-        value={nodo.bifurcacion ? nodo.bifurcacion.ramas.length : 0}
-        onChange={(e) => onChange(cambiarBifurcacion(nodo, Number(e.target.value)))}
-      >
-        <option value={0}>Fin (lanza o salida abierta)</option>
-        <option value={2}>Se bifurca en 2 salidas aquí</option>
-        <option value={3}>Se bifurca en 3 salidas aquí</option>
-      </select>
 
       {!nodo.bifurcacion && (
         <>
@@ -203,17 +281,24 @@ function EditorNodo({ nodo, onChange, diametrosPrimerTramo, titulo }) {
       )}
 
       {nodo.bifurcacion && (
-        <div className="calc-ramas">
-          {nodo.bifurcacion.ramas.map((rama, i) => (
-            <EditorNodo
-              key={i}
-              nodo={rama}
-              onChange={(nuevaRama) => onChange(actualizarRama(nodo, i, nuevaRama))}
-              diametrosPrimerTramo={diametrosManguera}
-              titulo={`↳ Salida ${i + 1} de esta bifurcación`}
-            />
-          ))}
-        </div>
+        <>
+          <div className="calc-tramo-acciones">
+            <button type="button" onClick={() => onChange(quitarBifurcacion(nodo))}>
+              ✕ Quitar esta bifurcación (se pierde lo configurado en sus salidas)
+            </button>
+          </div>
+          <div className="calc-ramas">
+            {nodo.bifurcacion.ramas.map((rama, i) => (
+              <EditorNodo
+                key={i}
+                nodo={rama}
+                onChange={(nuevaRama) => onChange(actualizarRama(nodo, i, nuevaRama))}
+                diametrosPrimerTramo={diametrosManguera}
+                titulo={`↳ Salida ${i + 1} de esta bifurcación`}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
