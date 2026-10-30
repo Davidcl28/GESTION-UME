@@ -231,6 +231,14 @@ export default function CalculadoraHidraulica() {
 
   const [succion0, setSuccion0] = useState(3); // succión del equipo 1 (siempre aplica si no es sumergible)
   const [succion1, setSuccion1] = useState(0); // succión del equipo 2 (solo se usa en modo paralelo)
+  // Con un solo equipo (no sumergible), se elige si lo que se va a medir es
+  // la succión (achique: el equipo saca agua de un punto bajo, p. ej. un
+  // sótano inundado) o la impulsión (incendio: el equipo empuja agua por un
+  // tendido largo, aspirando de una fuente a su mismo nivel o casi). Solo se
+  // usa el campo del modo elegido; el otro queda a 0 para no sumarlo dos
+  // veces. Con 2 equipos, o si el equipo 1 es sumergible, no hace falta
+  // elegir: se muestran los campos que correspondan sin este selector.
+  const [modoAltura0, setModoAltura0] = useState('succion'); // 'succion' | 'impulsion'
 
   const [tramoEnlace, setTramoEnlace] = useState(tramoPorDefecto('45', 10)); // serie: manguera de enlace entre ambos equipos
   const [desnivelEnlace, setDesnivelEnlace] = useState(0);
@@ -239,7 +247,10 @@ export default function CalculadoraHidraulica() {
   const [tramoConexion1, setTramoConexion1] = useState(tramoPorDefecto('45', 5));
 
   // --- Tendido (árbol de bifurcaciones) ---
-  const [alturaImpulsion, setAlturaImpulsion] = useState(7);
+  // Empieza a 0 porque el modo por defecto del equipo 1 es succión (ver
+  // modoAltura0): si empezara con un valor de ejemplo, ese valor se
+  // sumaría al cálculo aunque su campo esté oculto por el modo elegido.
+  const [alturaImpulsion, setAlturaImpulsion] = useState(0);
   const [nodoRaiz, setNodoRaiz] = useState(crearNodoHoja(catalogoMedios[0].diametrosDisponibles[0], 40));
 
   const [densidad, setDensidad] = useState(1.0);
@@ -271,6 +282,12 @@ export default function CalculadoraHidraulica() {
     setTramoConexion1((t) => ({ ...t, diametroId: diametrosDeEquipo(nuevoMedio)[0].id }));
   }
 
+  function cambiarModoAltura0(modo) {
+    setModoAltura0(modo);
+    if (modo === 'succion') setAlturaImpulsion(0);
+    else setSuccion0(0);
+  }
+
   const tramoEnlaceResuelto = useMemo(() => resolverTramo(tramoEnlace), [tramoEnlace]);
   const tramoConexion0Resuelto = useMemo(() => resolverTramo(tramoConexion0), [tramoConexion0]);
   const tramoConexion1Resuelto = useMemo(() => resolverTramo(tramoConexion1), [tramoConexion1]);
@@ -283,7 +300,7 @@ export default function CalculadoraHidraulica() {
   // que no se vuelve a sumar aquí para no contarla dos veces.
   const desnivelPrincipalM = esParalelo
     ? Number(alturaImpulsion) || 0
-    : (Number(succion0) || 0) + (Number(alturaImpulsion) || 0);
+    : (medio0.sumergible ? 0 : Number(succion0) || 0) + (Number(alturaImpulsion) || 0);
 
   const bomba = useMemo(() => {
     const bombaSimple0 = construirBombaSimple(datos0.curva, datos0.alturaMaximaM, datos0.caudalMaximoLMin);
@@ -406,10 +423,38 @@ export default function CalculadoraHidraulica() {
               : '📥 Succión + 📤 impulsión: este equipo toma el agua de la fuente real.'}
           </p>
 
-          <label>
-            Altura de succión del equipo 1{medio0.sumergible ? ' (no aplica: equipo sumergible)' : ' (agua → equipo, m)'}
-          </label>
-          <input type="number" min="0" value={succion0} disabled={medio0.sumergible} onChange={(e) => setSuccion0(e.target.value)} />
+          {numEquipos === 1 && !medio0.sumergible ? (
+            <>
+              <label>¿Qué va a medir: succión o impulsión?</label>
+              <select value={modoAltura0} onChange={(e) => cambiarModoAltura0(e.target.value)}>
+                <option value="succion">Succión (achique: saca agua de un punto bajo, p. ej. un sótano inundado)</option>
+                <option value="impulsion">Impulsión (incendio: empuja agua por un tendido largo)</option>
+              </select>
+              {modoAltura0 === 'succion' ? (
+                <>
+                  <label>Altura de succión (agua → equipo, m)</label>
+                  <input type="number" min="0" value={succion0} onChange={(e) => setSuccion0(e.target.value)} />
+                </>
+              ) : (
+                <>
+                  <label>Altura de impulsión (equipo → tendido, m)</label>
+                  <input type="number" min="0" value={alturaImpulsion} onChange={(e) => setAlturaImpulsion(e.target.value)} />
+                </>
+              )}
+              <p className="calc-hint">
+                Succión e impulsión se suman en el cálculo final: si en su caso aplican las dos a la vez (p. ej.
+                el equipo está unos metros por debajo del agua y además empuja varios metros más arriba),
+                escriba la suma de ambas en el campo del modo elegido.
+              </p>
+            </>
+          ) : (
+            <>
+              <label>
+                Altura de succión del equipo 1{medio0.sumergible ? ' (no aplica: equipo sumergible)' : ' (agua → equipo, m)'}
+              </label>
+              <input type="number" min="0" value={succion0} disabled={medio0.sumergible} onChange={(e) => setSuccion0(e.target.value)} />
+            </>
+          )}
 
           {numEquipos === 2 && (
             <>
@@ -507,8 +552,12 @@ export default function CalculadoraHidraulica() {
             </>
           )}
 
-          <label>Altura de impulsión {numEquipos === 2 ? `tras el ${esSerie ? 'conjunto' : 'colector'}` : '(bomba → tendido)'} (m)</label>
-          <input type="number" min="0" value={alturaImpulsion} onChange={(e) => setAlturaImpulsion(e.target.value)} />
+          {!(numEquipos === 1 && !medio0.sumergible) && (
+            <>
+              <label>Altura de impulsión {numEquipos === 2 ? `tras el ${esSerie ? 'conjunto' : 'colector'}` : '(bomba → tendido)'} (m)</label>
+              <input type="number" min="0" value={alturaImpulsion} onChange={(e) => setAlturaImpulsion(e.target.value)} />
+            </>
+          )}
 
           <h4>2. Tendido de manguera</h4>
           <p className="calc-hint">
