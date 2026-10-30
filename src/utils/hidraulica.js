@@ -310,119 +310,199 @@ export function combinarBombasParalelo(
   return { alturaBomba, H0, caudalMaximoLMin, caudalDeA, caudalDeB };
 }
 
+const ALTURA_MAX_BISECCION = 1000; // m: cota superior generosa para acotar las bisecciones de altura (ningún equipo del catálogo supera los 260 m de la Black Panther BP4)
+
+// Un tendido real largo rara vez tiene una única bifurcación al final: se
+// pueden poner varias, en puntos distintos (p. ej. una a los 200 m de
+// manguera y, en una de sus salidas, otra más adelante). Se modela como un
+// ÁRBOL: cada "nodo" tiene sus propios tramos de manguera (el tramo que
+// recorre antes de terminar o de volver a bifurcarse) y, opcionalmente,
+// una bifurcación en 2-3 ramas, cada una de ellas otro nodo igual
+// (recursivo: una rama puede volver a bifurcarse más adelante).
+//   nodo = {
+//     tramos: [...],            // manguera propia de este nodo
+//     desnivelPropioM: 0,       // desnivel propio de este tramo (p. ej. escaleras)
+//     bifurcacion: null | { ramas: [nodo, nodo, ...] },
+//     boquilla, usarSideinfo... // solo relevante si no bifurca (es una hoja/punta de lanza)
+//   }
+//
+// Para cada nodo se construye su "perfil": la relación entre el caudal que
+// entra por él y la altura manométrica que hace falta en su entrada para
+// ello (y su inversa). Resolver esto con una bisección en cada nivel de
+// bifurcación, anidada dentro de la bisección del nivel anterior, tiene un
+// coste que crece exponencialmente con la profundidad del árbol (cada
+// nivel multiplica el coste del siguiente por ~60 iteraciones): con dos o
+// tres bifurcaciones en cadena deja de ser viable en la práctica. Por eso
+// se calcula de abajo a arriba y UNA SOLA VEZ, en vez de recalcularse en
+// cada consulta:
+//  - En una hoja, las pérdidas (manguera, reducciones, boquilla) son
+//    exactamente proporcionales a Q² — perdidaCargaManguera,
+//    perdidaReduccionM y presionBoquillaM no tienen término constante ni
+//    lineal, solo cuadrático — así que se invierten en forma CERRADA, sin
+//    aproximación ni bisección.
+//  - En un nodo que bifurca no hay forma cerrada (es la suma de varias
+//    raíces cuadradas con coeficientes distintos, una por rama), así que
+//    se tabula barriendo la altura en el punto de reparto y usando los
+//    perfiles YA CONSTRUIDOS de sus ramas (que ya son búsquedas en tabla,
+//    no bisecciones) para cada muestra. El coste de construir un nodo pasa
+//    a ser proporcional al número de muestras, no exponencial con la
+//    profundidad, y cada consulta posterior (evaluar/invertir) es una
+//    búsqueda binaria en esa tabla.
+const NUM_MUESTRAS_PERFIL = 200;
+
+// Busca por interpolación lineal en una tabla ordenada (por construcción,
+// estrictamente creciente en los tres campos a la vez: más altura en el
+// punto de reparto da más caudal, y más caudal da más altura de entrada).
+// Fuera de rango por debajo se trunca al primer valor; por encima se
+// extrapola linealmente con la pendiente del último tramo (para que un
+// caudal mayor que el muestreado, p. ej. por el tope de ficha de una
+// cadena de bombas muy potente, no quede sin resolver).
+function buscarEnTabla(muestras, campoEntrada, valorEntrada, campoSalida) {
+  const n = muestras.length;
+  if (valorEntrada <= muestras[0][campoEntrada]) return muestras[0][campoSalida];
+  const ultima = muestras[n - 1];
+  if (valorEntrada >= ultima[campoEntrada]) {
+    const previa = muestras[n - 2];
+    const denom = ultima[campoEntrada] - previa[campoEntrada];
+    const pendiente = denom !== 0 ? (ultima[campoSalida] - previa[campoSalida]) / denom : 0;
+    return ultima[campoSalida] + pendiente * (valorEntrada - ultima[campoEntrada]);
+  }
+  let lo = 0;
+  let hi = n - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (muestras[mid][campoEntrada] < valorEntrada) lo = mid;
+    else hi = mid;
+  }
+  const a = muestras[lo];
+  const b = muestras[hi];
+  const denom = b[campoEntrada] - a[campoEntrada];
+  const t = denom !== 0 ? (valorEntrada - a[campoEntrada]) / denom : 0;
+  return a[campoSalida] + t * (b[campoSalida] - a[campoSalida]);
+}
+
+function construirPerfilNodo(nodo, diametroEntradaMM, densidadRelativa) {
+  const tramosConEntrada =
+    diametroEntradaMM != null && nodo.tramos.length
+      ? [{ diametroMM: diametroEntradaMM, coeficiente: 0, longitudM: 0 }, ...nodo.tramos]
+      : nodo.tramos;
+
+  if (!nodo.bifurcacion) {
+    // Qref es arbitrario (>0): como la pérdida es exactamente A·Q², calibrar
+    // A con un único punto de referencia da el coeficiente exacto, no una
+    // aproximación.
+    const Qref = 1000;
+    const perdidaEnQref =
+      perdidaTendido(Qref, tramosConEntrada, densidadRelativa) +
+      (nodo.boquilla ? presionBoquillaM(Qref, nodo.boquilla) * densidadRelativa : 0);
+    const A = perdidaEnQref / (Qref * Qref);
+    const B = nodo.desnivelPropioM || 0;
+    return {
+      evaluar: (Q) => A * Q * Q + B,
+      invertir: (H) => (A <= 0 || H <= B ? 0 : Math.sqrt((H - B) / A)),
+    };
+  }
+
+  const diametroSalida = nodo.tramos.length ? nodo.tramos[nodo.tramos.length - 1].diametroMM : diametroEntradaMM;
+  const perfilesRamas = nodo.bifurcacion.ramas.map((r) => construirPerfilNodo(r, diametroSalida, densidadRelativa));
+
+  const muestras = [];
+  for (let i = 0; i <= NUM_MUESTRAS_PERFIL; i++) {
+    const frac = i / NUM_MUESTRAS_PERFIL;
+    const Hreparto = ALTURA_MAX_BISECCION * frac * frac; // más densidad de muestras a alturas bajas, donde la curva cambia más
+    const Qreparto = perfilesRamas.reduce((s, p) => s + p.invertir(Hreparto), 0);
+    const Hentrada = perdidaTendido(Qreparto, tramosConEntrada, densidadRelativa) + (nodo.desnivelPropioM || 0) + Hreparto;
+    muestras.push({ Hreparto, Q: Qreparto, H: Hentrada });
+  }
+
+  return {
+    evaluar: (Q) => buscarEnTabla(muestras, 'Q', Q, 'H'),
+    invertir: (H) => buscarEnTabla(muestras, 'H', H, 'Q'),
+    repartoParaCaudal: (Q) => buscarEnTabla(muestras, 'Q', Q, 'Hreparto'),
+    perfilesRamas,
+    diametroSalida,
+  };
+}
+
+// Recorre el árbol (una vez resuelto el caudal que entra por la raíz)
+// repartiendo ese caudal entre todas las hojas, usando los perfiles ya
+// construidos (búsquedas en tabla). out[] acumula el resultado de cada
+// hoja en el mismo orden en que aparecen en el árbol.
+function descenderPerfil(Q, nodo, perfil, diametroEntradaMM, densidadRelativa, out) {
+  if (!nodo.bifurcacion) {
+    const tramosConEntrada =
+      diametroEntradaMM != null && nodo.tramos.length
+        ? [{ diametroMM: diametroEntradaMM, coeficiente: 0, longitudM: 0 }, ...nodo.tramos]
+        : nodo.tramos;
+    const perdidaBoquilla = nodo.boquilla ? presionBoquillaM(Q, nodo.boquilla) * densidadRelativa : 0;
+    const presionBoquillaBar = nodo.boquilla ? Math.round((perdidaBoquilla / 10.2) * 100) / 100 : null;
+    out.push({
+      nodo,
+      caudalLMin: Math.round(Q),
+      perdidaCargaM: Math.round((perdidaTendido(Q, tramosConEntrada, densidadRelativa) + (nodo.desnivelPropioM || 0)) * 10) / 10,
+      presionBoquillaBar,
+      alcanceBoquillaM: nodo.boquilla ? Math.round(alcanceBoquillaM(presionBoquillaBar, nodo.boquilla) * 10) / 10 : null,
+    });
+    return;
+  }
+
+  const Hreparto = perfil.repartoParaCaudal(Q);
+  nodo.bifurcacion.ramas.forEach((r, i) => {
+    const perfilRama = perfil.perfilesRamas[i];
+    const Qr = perfilRama.invertir(Hreparto);
+    descenderPerfil(Qr, r, perfilRama, perfil.diametroSalida, densidadRelativa, out);
+  });
+}
+
 // Resuelve el punto de trabajo de un sistema con una fuente de presión ya
 // combinada ("bomba": una sola, o varias en serie/paralelo) y un tendido
-// con 1 a 3 salidas finales (sin bifurcación, con bifurcación o con
-// trifurcación). Todas las salidas comparten el mismo punto de reparto (la
-// misma altura manométrica justo ahí), así que el caudal se reparte entre
-// ellas según la pérdida de carga propia de cada una (su manguera + su
-// lanza, si tiene + su desnivel propio, si lo hay): la salida con menos
-// pérdida se lleva más caudal, igual que pasaría con mangueras reales
-// conectadas a un mismo repartidor.
-//
-// tramosPrincipales es el tramo común ANTES del reparto (puede ir vacío si
-// no hay tramo común, p. ej. cuando solo hay una salida y toda la manguera
-// es "la salida"). ramas es la lista de salidas: cada una es
-// { tramos, boquilla, desnivelExtraM }, y debe tener siempre al menos un
-// tramo de manguera propio (con longitud > 0) si tramosPrincipales va
-// vacío, para que el reparto tenga una pérdida de carga real con la que
-// resolverse.
-export function resolverPuntoTrabajoRed({
-  bomba,
-  desnivelPrincipalM = 0,
-  tramosPrincipales = [],
-  ramas,
-  densidadRelativa = 1,
-}) {
-  const diametroEntradaMM = tramosPrincipales.length
-    ? tramosPrincipales[tramosPrincipales.length - 1].diametroMM
-    : null;
+// representado como un ÁRBOL de bifurcaciones (nodoRaiz): cada "nodo"
+// tiene sus propios tramos de manguera (el tramo que recorre antes de
+// terminar en una punta de lanza o de volver a bifurcarse) y,
+// opcionalmente, una bifurcación en 2-3 ramas, cada una de ellas otro nodo
+// igual (recursivo: una rama puede volver a bifurcarse más adelante, para
+// colocar varias bifurcaciones en puntos distintos de un mismo tendido
+// largo, no solo una al final).
+//   nodo = {
+//     tramos: [...],            // manguera propia de este nodo
+//     desnivelPropioM: 0,       // desnivel propio de este tramo (p. ej. escaleras)
+//     bifurcacion: null | { ramas: [nodo, nodo, ...] },
+//     boquilla,                 // solo relevante si no bifurca (es una hoja/punta de lanza)
+//   }
+// Si el tope de caudal de ficha recorta el resultado, se vuelve a recorrer
+// el árbol entero con el caudal ya recortado (no es una aproximación por
+// factor de reparto: cada bifurcación se resuelve de nuevo para ese
+// caudal, exactamente igual que si ese hubiera sido el caudal real desde
+// el principio).
+export function resolverPuntoTrabajoArbol({ bomba, desnivelPrincipalM = 0, nodoRaiz, densidadRelativa = 1 }) {
+  const perfilRaiz = construirPerfilNodo(nodoRaiz, null, densidadRelativa);
 
-  // Si hay un tramo principal antes del reparto, se añade la pérdida de la
-  // reducción/racor del repartidor (diámetro del tramo principal → de cada
-  // salida), igual que entre dos tramos cualesquiera de un mismo tendido.
-  function tramosDeRamaConEntrada(rama) {
-    if (diametroEntradaMM == null || !rama.tramos.length) return rama.tramos;
-    return [{ diametroMM: diametroEntradaMM, coeficiente: 0, longitudM: 0 }, ...rama.tramos];
+  function f(Q) {
+    return desnivelPrincipalM + perfilRaiz.evaluar(Q) - bomba.alturaBomba(Q);
   }
 
-  function perdidaRama(Q, rama) {
-    let total = perdidaTendido(Q, tramosDeRamaConEntrada(rama), densidadRelativa);
-    if (rama.boquilla) total += presionBoquillaM(Q, rama.boquilla) * densidadRelativa;
-    total += rama.desnivelExtraM || 0;
-    return total;
-  }
-
-  function caudalRama(H, rama) {
-    return biseccionCaudal((Q) => perdidaRama(Q, rama), H, true);
-  }
-
-  function caudalTotalParaH(H) {
-    return ramas.reduce((s, r) => s + caudalRama(H, r), 0);
-  }
-
-  // f(H) es monótona creciente en H: al subir H, cada rama admite más
-  // caudal (pérdida creciente en Q), el tramo principal pierde más con ese
-  // caudal mayor, y la bomba da cada vez menos altura disponible con ese
-  // caudal mayor — los tres efectos empujan f hacia arriba. Se busca su
-  // cero por bisección, acotada entre 0 y la altura estática máxima de la
-  // bomba (cota segura: a más altura que esa, ninguna bomba da presión
-  // positiva ni con caudal cero).
-  function f(H) {
-    const Qtotal = caudalTotalParaH(H);
-    const perdidaPrincipal = perdidaTendido(Qtotal, tramosPrincipales, densidadRelativa);
-    return desnivelPrincipalM + perdidaPrincipal + H - bomba.alturaBomba(Qtotal);
-  }
-
-  let Hsol = 0;
+  let Qsol = 0;
   if (desnivelPrincipalM < bomba.H0 && f(0) < 0) {
     let lo = 0;
-    let hi = bomba.H0;
+    let hi = CAUDAL_MAX_BISECCION;
     for (let i = 0; i < 60; i++) {
       const mid = (lo + hi) / 2;
       if (f(mid) > 0) hi = mid;
       else lo = mid;
     }
-    Hsol = (lo + hi) / 2;
+    Qsol = (lo + hi) / 2;
   }
 
-  const QtotalCrudo = caudalTotalParaH(Hsol);
-  const QtotalFinal = bomba.caudalMaximoLMin != null ? Math.min(QtotalCrudo, bomba.caudalMaximoLMin) : QtotalCrudo;
-  // Si el tope de ficha recorta el caudal total, se reparte la misma
-  // proporción a cada salida: es una aproximación (no se vuelve a resolver
-  // el reparto a ese caudal menor), consistente con cómo el resto de la
-  // aplicación ya trata los topes duros de ficha, como un recorte final y
-  // no como una incógnita más del sistema.
-  const factorReparto = QtotalCrudo > 0 ? QtotalFinal / QtotalCrudo : 0;
+  const QsolFinal = bomba.caudalMaximoLMin != null ? Math.min(Qsol, bomba.caudalMaximoLMin) : Qsol;
 
-  const perdidaPrincipalFinal = perdidaTendido(QtotalFinal, tramosPrincipales, densidadRelativa);
-
-  const caudalesRamaFinal = ramas.map((rama) => caudalRama(Hsol, rama) * factorReparto);
-  // Si el tope de caudal ha recortado el reparto, la altura en el punto de
-  // reparto ya no es la Hsol sin recortar: se recalcula a partir del
-  // caudal real (ya recortado) de la primera rama, igual que
-  // estimarPuntoTrabajo recalcula su pérdida de carga final con el caudal
-  // ya recortado en vez de reutilizar el de la bisección sin recortar.
-  const HsolFinal = ramas.length ? perdidaRama(caudalesRamaFinal[0], ramas[0]) : Hsol;
-
-  const resultadosRamas = ramas.map((rama, i) => {
-    const Qrama = caudalesRamaFinal[i];
-    const perdidaConBoquilla = perdidaRama(Qrama, rama);
-    const presionBoquillaFinal = rama.boquilla ? presionBoquillaM(Qrama, rama.boquilla) * densidadRelativa : 0;
-    const presionBoquillaBar = rama.boquilla ? Math.round((presionBoquillaFinal / 10.2) * 100) / 100 : null;
-    return {
-      caudalLMin: Math.round(Qrama),
-      perdidaCargaM: Math.round((perdidaConBoquilla - presionBoquillaFinal) * 10) / 10,
-      presionBoquillaBar,
-      alcanceBoquillaM: rama.boquilla ? Math.round(alcanceBoquillaM(presionBoquillaBar, rama.boquilla) * 10) / 10 : null,
-    };
-  });
+  const hojas = [];
+  descenderPerfil(QsolFinal, nodoRaiz, perfilRaiz, null, densidadRelativa, hojas);
+  const perdidaTotal = perfilRaiz.evaluar(QsolFinal);
 
   return {
-    caudalTotalLMin: Math.round(QtotalFinal),
-    alturaManometricaTotal: Math.round((desnivelPrincipalM + perdidaPrincipalFinal + HsolFinal) * 10) / 10,
-    perdidaCargaPrincipalM: Math.round(perdidaPrincipalFinal * 10) / 10,
-    alturaEnRepartoM: Math.round(HsolFinal * 10) / 10,
-    ramas: resultadosRamas,
+    caudalTotalLMin: Math.round(QsolFinal),
+    alturaManometricaTotal: Math.round((desnivelPrincipalM + perdidaTotal) * 10) / 10,
+    perdidaCargaTotalM: Math.round(perdidaTotal * 10) / 10,
+    hojas,
   };
 }

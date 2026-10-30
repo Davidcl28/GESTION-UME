@@ -148,3 +148,14 @@
 .calc-checkbox input {
   width: auto;
 }
+
+.calc-nodo {
+  margin-top: 12px;
+}
+
+.calc-ramas {
+  margin-top: 10px;
+  margin-left: 14px;
+  padding-left: 12px;
+  border-left: 2px solid #4caf50;
+}

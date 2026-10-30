@@ -1,11 +1,6 @@
 import { useMemo, useState } from 'react';
 import { boquillasSideinfo, catalogoMedios, diametrosManguera, LIMITE_SUCCION_GENERAL_M } from '../data/equipos';
-import {
-  construirBombaSimple,
-  combinarBombasSerie,
-  combinarBombasParalelo,
-  resolverPuntoTrabajoRed,
-} from '../utils/hidraulica';
+import { construirBombaSimple, combinarBombasSerie, combinarBombasParalelo, resolverPuntoTrabajoArbol } from '../utils/hidraulica';
 import './CalculadoraHidraulica.css';
 
 function diametrosDeEquipo(medio) {
@@ -20,26 +15,91 @@ function tramoPorDefecto(diametroId, longitudM = 20) {
 
 function resolverTramo(t) {
   const d = diametrosManguera.find((x) => x.id === t.diametroId) || diametrosManguera[0];
-  return {
-    diametroMM: Number(d.id),
-    coeficiente: d.coeficiente,
-    longitudM: Number(t.longitudM) || 0,
-    nombre: d.nombre,
-    caudalRecomendadoMax: d.caudalRecomendadoMax,
-  };
+  return { diametroMM: Number(d.id), coeficiente: d.coeficiente, longitudM: Number(t.longitudM) || 0 };
 }
 
 function resolverTramos(arr) {
   return arr.map(resolverTramo);
 }
 
-function crearSalidaPorDefecto() {
+// --- Árbol de tendido (bifurcaciones en cualquier punto, no solo al final) ---
+// Cada "nodo" es un tramo (1 o varias secciones de manguera de distinto
+// diámetro) que termina en una punta de lanza (hoja) o que, en el punto
+// exacto donde el usuario lo decida, se bifurca en 2-3 salidas, cada una
+// otro nodo igual (así se puede anidar: una salida de una bifurcación
+// puede volver a bifurcarse más adelante).
+function crearNodoHoja(diametroId, longitudM = 20) {
   return {
-    tramos: [tramoPorDefecto('45', 20)],
-    desnivelExtra: 0,
+    tramos: [tramoPorDefecto(diametroId, longitudM)],
+    desnivelPropio: 0,
+    bifurcacion: null, // null | { ramas: [nodo, nodo, ...] }
     usarSideinfo: false,
     boquillaMM: boquillasSideinfo[2].mm,
   };
+}
+
+function cambiarNumeroTramosNodo(nodo, n) {
+  const next = nodo.tramos.slice(0, n);
+  while (next.length < n) {
+    const anterior = next[next.length - 1] || nodo.tramos[0];
+    next.push(tramoPorDefecto(anterior.diametroId, 10));
+  }
+  return { ...nodo, tramos: next };
+}
+
+function actualizarTramoNodo(nodo, indice, cambios) {
+  return { ...nodo, tramos: nodo.tramos.map((t, i) => (i === indice ? { ...t, ...cambios } : t)) };
+}
+
+function cambiarBifurcacion(nodo, n) {
+  if (n === 0) return { ...nodo, bifurcacion: null };
+  const ramasActuales = nodo.bifurcacion?.ramas || [];
+  const ramas = ramasActuales.slice(0, n);
+  while (ramas.length < n) {
+    const ultimoDiametro = nodo.tramos[nodo.tramos.length - 1]?.diametroId || '45';
+    ramas.push(crearNodoHoja(ultimoDiametro, 20));
+  }
+  return { ...nodo, bifurcacion: { ramas } };
+}
+
+function actualizarRama(nodo, indice, nuevaRama) {
+  return { ...nodo, bifurcacion: { ramas: nodo.bifurcacion.ramas.map((r, i) => (i === indice ? nuevaRama : r)) } };
+}
+
+// Convierte el nodo "de estado de la UI" al nodo que espera resolverPuntoTrabajoArbol.
+function resolverNodo(nodo) {
+  return {
+    tramos: resolverTramos(nodo.tramos),
+    desnivelPropioM: Number(nodo.desnivelPropio) || 0,
+    bifurcacion: nodo.bifurcacion ? { ramas: nodo.bifurcacion.ramas.map(resolverNodo) } : null,
+    boquilla: !nodo.bifurcacion && nodo.usarSideinfo ? boquillasSideinfo.find((b) => b.mm === nodo.boquillaMM) : undefined,
+  };
+}
+
+// Recoge todas las hojas (puntas de lanza) del árbol, en el mismo orden en
+// que las devuelve resolverPuntoTrabajoArbol (recorrido de las ramas en
+// orden, en profundidad), junto con una etiqueta legible de su ruta.
+function recolectarHojas(nodo, ruta = []) {
+  if (!nodo.bifurcacion) return [{ nodo, etiqueta: ruta.length ? ruta.join(' → ') : 'Salida única' }];
+  return nodo.bifurcacion.ramas.flatMap((r, i) => recolectarHojas(r, [...ruta, `Salida ${i + 1}`]));
+}
+
+// Recorre el árbol acumulando, para cada nodo (no solo las hojas), el
+// caudal que lo atraviesa (suma de sus hojas descendientes) y comprueba si
+// supera el recomendado para alguno de sus propios tramos.
+function recolectarAvisosTramos(nodo, caudalesHoja, cursor, avisos) {
+  let caudalNodo;
+  if (!nodo.bifurcacion) {
+    caudalNodo = caudalesHoja[cursor.i];
+    cursor.i++;
+  } else {
+    caudalNodo = nodo.bifurcacion.ramas.reduce((s, r) => s + recolectarAvisosTramos(r, caudalesHoja, cursor, avisos), 0);
+  }
+  nodo.tramos.forEach((t) => {
+    const d = diametrosManguera.find((x) => x.id === t.diametroId);
+    if (d && caudalNodo > d.caudalRecomendadoMax) avisos.push({ nombre: d.nombre, caudalRecomendadoMax: d.caudalRecomendadoMax });
+  });
+  return caudalNodo;
 }
 
 // Datos de curva/topes de un equipo (y, si aplica, de su circuito seleccionado).
@@ -64,6 +124,101 @@ function succionInfo(medio, succionValor) {
   return { imposible, excedida, limiteGeneralExcedido, limiteAplicable };
 }
 
+const NUMEROS_TRAMO = [1, 2, 3, 4, 5, 6];
+
+// Editor recursivo de un nodo del árbol de tendido: sus propios tramos de
+// manguera y, opcionalmente, una bifurcación en 2-3 salidas, cada una
+// renderizada con el mismo componente (puede volver a bifurcarse).
+function EditorNodo({ nodo, onChange, diametrosPrimerTramo, titulo }) {
+  return (
+    <div className="calc-tramo calc-nodo">
+      <strong>{titulo}</strong>
+
+      <label>Número de tramos de diámetro distinto en este tendido</label>
+      <select value={nodo.tramos.length} onChange={(e) => onChange(cambiarNumeroTramosNodo(nodo, Number(e.target.value)))}>
+        {NUMEROS_TRAMO.map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+      </select>
+      <p className="calc-hint">
+        Si varias mangueras seguidas tienen el mismo diámetro, no hace falta meterlas una a una: sume sus
+        longitudes en un solo tramo (p. ej. 20 mangueras de 25 m del mismo diámetro = un tramo de 500 m).
+      </p>
+
+      {nodo.tramos.map((tramo, i) => (
+        <div key={i} className="calc-tramo-campos">
+          <div>
+            <label>Diámetro {i === 0 ? '' : `(tramo ${i + 1})`}</label>
+            <select value={tramo.diametroId} onChange={(e) => onChange(actualizarTramoNodo(nodo, i, { diametroId: e.target.value }))}>
+              {(i === 0 ? diametrosPrimerTramo : diametrosManguera).map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.nombre}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label>Longitud (m)</label>
+            <input
+              type="number"
+              min="0"
+              value={tramo.longitudM}
+              onChange={(e) => onChange(actualizarTramoNodo(nodo, i, { longitudM: e.target.value }))}
+            />
+          </div>
+        </div>
+      ))}
+
+      <label>Desnivel propio de este tendido (m, p. ej. si sube escaleras)</label>
+      <input type="number" value={nodo.desnivelPropio} onChange={(e) => onChange({ ...nodo, desnivelPropio: e.target.value })} />
+
+      <label>¿Qué hay al final de este tendido?</label>
+      <select
+        value={nodo.bifurcacion ? nodo.bifurcacion.ramas.length : 0}
+        onChange={(e) => onChange(cambiarBifurcacion(nodo, Number(e.target.value)))}
+      >
+        <option value={0}>Fin (lanza o salida abierta)</option>
+        <option value={2}>Se bifurca en 2 salidas aquí</option>
+        <option value={3}>Se bifurca en 3 salidas aquí</option>
+      </select>
+
+      {!nodo.bifurcacion && (
+        <>
+          <label className="calc-checkbox">
+            <input type="checkbox" checked={nodo.usarSideinfo} onChange={(e) => onChange({ ...nodo, usarSideinfo: e.target.checked })} />
+            Lanza reguladora SIDEINFO aquí
+          </label>
+          {nodo.usarSideinfo && (
+            <select value={nodo.boquillaMM} onChange={(e) => onChange({ ...nodo, boquillaMM: Number(e.target.value) })}>
+              {boquillasSideinfo.map((b) => (
+                <option key={b.mm} value={b.mm}>
+                  {b.mm} mm (máx. {b.presionMaxBar} bar → {b.caudalMaxLMin} l/min, {b.alcanceMaxM} m)
+                </option>
+              ))}
+            </select>
+          )}
+        </>
+      )}
+
+      {nodo.bifurcacion && (
+        <div className="calc-ramas">
+          {nodo.bifurcacion.ramas.map((rama, i) => (
+            <EditorNodo
+              key={i}
+              nodo={rama}
+              onChange={(nuevaRama) => onChange(actualizarRama(nodo, i, nuevaRama))}
+              diametrosPrimerTramo={diametrosManguera}
+              titulo={`↳ Salida ${i + 1} de esta bifurcación`}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CalculadoraHidraulica() {
   // --- Cadena de equipos de bombeo (1 o 2) ---
   const [numEquipos, setNumEquipos] = useState(1);
@@ -83,13 +238,9 @@ export default function CalculadoraHidraulica() {
   const [tramoConexion0, setTramoConexion0] = useState(tramoPorDefecto('45', 5)); // paralelo: conexión de cada equipo al colector
   const [tramoConexion1, setTramoConexion1] = useState(tramoPorDefecto('45', 5));
 
-  // --- Tendido principal (hasta el reparto, si lo hay) ---
+  // --- Tendido (árbol de bifurcaciones) ---
   const [alturaImpulsion, setAlturaImpulsion] = useState(7);
-  const [tramos, setTramos] = useState([tramoPorDefecto(catalogoMedios[0].diametrosDisponibles[0], 40)]);
-
-  // --- Salidas finales (1 = sin bifurcar, 2 = bifurcación, 3 = trifurcación) ---
-  const [numSalidas, setNumSalidas] = useState(1);
-  const [salidas, setSalidas] = useState([crearSalidaPorDefecto()]);
+  const [nodoRaiz, setNodoRaiz] = useState(crearNodoHoja(catalogoMedios[0].diametrosDisponibles[0], 40));
 
   const [densidad, setDensidad] = useState(1.0);
 
@@ -103,12 +254,12 @@ export default function CalculadoraHidraulica() {
   const esParalelo = numEquipos === 2 && modoConexion === 'paralelo';
   const esSerie = numEquipos === 2 && modoConexion === 'serie';
 
-  // Al cambiar el equipo 1, se reinicia el tendido principal con su primer
-  // racor real y su primer circuito disponible (igual que antes).
+  // Al cambiar el equipo 1, se reinicia el tendido con su primer racor
+  // real y su primer circuito disponible (igual que antes).
   function cambiarMedio0(nuevoMedioId) {
     setMedioId0(nuevoMedioId);
     const nuevoMedio = catalogoMedios.find((m) => m.id === nuevoMedioId);
-    setTramos([tramoPorDefecto(diametrosDeEquipo(nuevoMedio)[0].id, 40)]);
+    setNodoRaiz(crearNodoHoja(diametrosDeEquipo(nuevoMedio)[0].id, 40));
     setCircuitoId0(nuevoMedio.circuitos?.[0]?.id ?? null);
     setTramoEnlace((t) => ({ ...t, diametroId: diametrosDeEquipo(nuevoMedio)[0].id }));
     setTramoConexion0((t) => ({ ...t, diametroId: diametrosDeEquipo(nuevoMedio)[0].id }));
@@ -120,65 +271,10 @@ export default function CalculadoraHidraulica() {
     setTramoConexion1((t) => ({ ...t, diametroId: diametrosDeEquipo(nuevoMedio)[0].id }));
   }
 
-  function cambiarNumeroTramos(n) {
-    setTramos((prev) => {
-      const next = prev.slice(0, n);
-      while (next.length < n) {
-        const anterior = next[next.length - 1] || prev[0];
-        next.push(tramoPorDefecto(anterior.diametroId, 10));
-      }
-      return next;
-    });
-  }
-  function actualizarTramo(indice, cambios) {
-    setTramos((prev) => prev.map((t, i) => (i === indice ? { ...t, ...cambios } : t)));
-  }
-
-  function cambiarNumeroSalidas(n) {
-    setNumSalidas(n);
-    setSalidas((prev) => {
-      const next = prev.slice(0, n);
-      while (next.length < n) next.push(crearSalidaPorDefecto());
-      return next;
-    });
-  }
-  function actualizarSalida(indice, cambios) {
-    setSalidas((prev) => prev.map((s, i) => (i === indice ? { ...s, ...cambios } : s)));
-  }
-  function cambiarNumeroTramosSalida(indiceSalida, n) {
-    setSalidas((prev) =>
-      prev.map((s, i) => {
-        if (i !== indiceSalida) return s;
-        const next = s.tramos.slice(0, n);
-        while (next.length < n) {
-          const anterior = next[next.length - 1] || s.tramos[0];
-          next.push(tramoPorDefecto(anterior.diametroId, 10));
-        }
-        return { ...s, tramos: next };
-      })
-    );
-  }
-  function actualizarTramoSalida(indiceSalida, indiceTramo, cambios) {
-    setSalidas((prev) =>
-      prev.map((s, i) =>
-        i !== indiceSalida ? s : { ...s, tramos: s.tramos.map((t, j) => (j === indiceTramo ? { ...t, ...cambios } : t)) }
-      )
-    );
-  }
-
-  const tramosResueltos = useMemo(() => resolverTramos(tramos), [tramos]);
   const tramoEnlaceResuelto = useMemo(() => resolverTramo(tramoEnlace), [tramoEnlace]);
   const tramoConexion0Resuelto = useMemo(() => resolverTramo(tramoConexion0), [tramoConexion0]);
   const tramoConexion1Resuelto = useMemo(() => resolverTramo(tramoConexion1), [tramoConexion1]);
-  const salidasResueltas = useMemo(
-    () =>
-      salidas.map((s) => ({
-        tramos: resolverTramos(s.tramos),
-        boquilla: s.usarSideinfo ? boquillasSideinfo.find((b) => b.mm === s.boquillaMM) : undefined,
-        desnivelExtraM: Number(s.desnivelExtra) || 0,
-      })),
-    [salidas]
-  );
+  const nodoRaizResuelto = useMemo(() => resolverNodo(nodoRaiz), [nodoRaiz]);
 
   // La succión del equipo 1 (y, en paralelo, también la del equipo 2) se
   // suma a la altura geométrica como siempre, salvo en paralelo: ahí cada
@@ -209,32 +305,19 @@ export default function CalculadoraHidraulica() {
     );
   }, [numEquipos, esSerie, datos0, datos1, tramoEnlaceResuelto, desnivelEnlace, tramoConexion0Resuelto, tramoConexion1Resuelto, succion0, succion1, densidad]);
 
-  // ramas/tramosPrincipales: si solo hay 1 salida no hace falta separar un
-  // tramo "principal" de uno "de la rama" (es la misma manguera, sin
-  // repartidor), así que toda ella se trata como la única rama. Si hay 2-3
-  // salidas, el tendido configurado arriba es el tramo común hasta el
-  // repartidor, y cada salida añade sus propios tramos a partir de ahí.
-  const boquillaUnica = useMemo(
-    () => (salidas[0]?.usarSideinfo ? boquillasSideinfo.find((b) => b.mm === salidas[0].boquillaMM) : undefined),
-    [salidas]
-  );
-  const tramosPrincipales = useMemo(() => (numSalidas > 1 ? tramosResueltos : []), [numSalidas, tramosResueltos]);
-  const ramas = useMemo(
-    () => (numSalidas > 1 ? salidasResueltas : [{ tramos: tramosResueltos, boquilla: boquillaUnica, desnivelExtraM: 0 }]),
-    [numSalidas, salidasResueltas, tramosResueltos, boquillaUnica]
-  );
-
   const resultado = useMemo(
     () =>
-      resolverPuntoTrabajoRed({
+      resolverPuntoTrabajoArbol({
         bomba,
         desnivelPrincipalM,
-        tramosPrincipales,
-        ramas,
+        nodoRaiz: nodoRaizResuelto,
         densidadRelativa: Number(densidad) || 1,
       }),
-    [bomba, desnivelPrincipalM, tramosPrincipales, ramas, densidad]
+    [bomba, desnivelPrincipalM, nodoRaizResuelto, densidad]
   );
+
+  const hojasUI = useMemo(() => recolectarHojas(nodoRaiz), [nodoRaiz]);
+  const hayBifurcacion = !!nodoRaiz.bifurcacion;
 
   // --- Viabilidad física ---
   const succionInfo0 = useMemo(() => succionInfo(medio0, succion0), [medio0, succion0]);
@@ -245,24 +328,26 @@ export default function CalculadoraHidraulica() {
   const caudalInviable = succionProblema || impulsionImposible || sinCaudalPorPerdida;
 
   const caudalMostrado = caudalInviable ? 0 : resultado.caudalTotalLMin;
-  const perdidaMostrada = succionProblema || impulsionImposible ? 0 : resultado.perdidaCargaPrincipalM;
+  const perdidaMostrada = succionProblema || impulsionImposible ? 0 : resultado.perdidaCargaTotalM;
   const alturaTotalMostrada = succionProblema || impulsionImposible ? desnivelPrincipalM : resultado.alturaManometricaTotal;
 
-  const tramoPrincipalExcedido = !caudalInviable ? tramosResueltos.find((t) => resultado.caudalTotalLMin > t.caudalRecomendadoMax) : null;
-  const tramosSalidaExcedidos =
-    !caudalInviable && numSalidas > 1
-      ? resultado.ramas
-          .map((r, i) => ({ salida: i + 1, tramo: salidasResueltas[i].tramos.find((t) => r.caudalLMin > t.caudalRecomendadoMax) }))
-          .filter((x) => x.tramo)
-      : [];
-  const boquillasFueraDeRango = !caudalInviable
-    ? resultado.ramas
-        .map((r, i) => {
-          const b = numSalidas > 1 ? salidasResueltas[i].boquilla : boquillaUnica;
-          return b && r.presionBoquillaBar > b.presionMaxBar ? { salida: i + 1, boquilla: b, presionBoquillaBar: r.presionBoquillaBar } : null;
-        })
-        .filter(Boolean)
-    : [];
+  const avisosTramos = useMemo(() => {
+    if (caudalInviable) return [];
+    const avisos = [];
+    recolectarAvisosTramos(nodoRaiz, resultado.hojas.map((h) => h.caudalLMin), { i: 0 }, avisos);
+    return avisos;
+  }, [caudalInviable, nodoRaiz, resultado]);
+
+  const boquillasFueraDeRango = useMemo(() => {
+    if (caudalInviable) return [];
+    return resultado.hojas
+      .map((h, i) => {
+        const nodoHoja = hojasUI[i]?.nodo;
+        const b = nodoHoja?.usarSideinfo ? boquillasSideinfo.find((x) => x.mm === nodoHoja.boquillaMM) : null;
+        return b && h.presionBoquillaBar > b.presionMaxBar ? { etiqueta: hojasUI[i].etiqueta, boquilla: b, presionBoquillaBar: h.presionBoquillaBar } : null;
+      })
+      .filter(Boolean);
+  }, [caudalInviable, resultado, hojasUI]);
 
   return (
     <div>
@@ -425,144 +510,15 @@ export default function CalculadoraHidraulica() {
           <label>Altura de impulsión {numEquipos === 2 ? `tras el ${esSerie ? 'conjunto' : 'colector'}` : '(bomba → tendido)'} (m)</label>
           <input type="number" min="0" value={alturaImpulsion} onChange={(e) => setAlturaImpulsion(e.target.value)} />
 
-          <h4>2. Tendido de manguera {numSalidas > 1 ? '(tramo principal, hasta el repartidor)' : ''}</h4>
+          <h4>2. Tendido de manguera</h4>
           <p className="calc-hint">
-            Un tendido real casi nunca es de un solo diámetro: se ponen reducciones. Indique cuántos tramos de
-            diámetro distinto tiene, y el diámetro/longitud de cada uno, en orden desde la bomba. Cada reducción
-            entre tramos también se cuenta como una pequeña pérdida de carga adicional.
+            Indique el tendido desde la bomba. En cualquier punto puede decidir que se bifurca o trifurca (un
+            repartidor con varias salidas, cada una con su propia manguera y, si se quiere, su propia lanza); y
+            cada una de esas salidas puede, a su vez, volver a bifurcarse más adelante. El caudal se reparte en
+            cada bifurcación según la pérdida de carga propia de cada salida: la que tenga menos pérdida se
+            lleva más caudal.
           </p>
-          <label>Número de tramos de diámetro distinto</label>
-          <select value={tramos.length} onChange={(e) => cambiarNumeroTramos(Number(e.target.value))}>
-            {[1, 2, 3, 4].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-
-          {tramos.map((tramo, i) => (
-            <div key={i} className="calc-tramo">
-              <strong>
-                Tramo {i + 1}
-                {i === 0 ? ' (desde la bomba)' : ''}
-              </strong>
-              <div className="calc-tramo-campos">
-                <div>
-                  <label>Diámetro</label>
-                  <select value={tramo.diametroId} onChange={(e) => actualizarTramo(i, { diametroId: e.target.value })}>
-                    {(i === 0 ? diametrosDelEquipo0 : diametrosManguera).map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label>Longitud (m)</label>
-                  <input type="number" min="0" value={tramo.longitudM} onChange={(e) => actualizarTramo(i, { longitudM: e.target.value })} />
-                </div>
-              </div>
-            </div>
-          ))}
-
-          <h4>3. Salidas al final del tendido</h4>
-          <p className="calc-hint">
-            Si en algún punto se pone una bifurcación o trifurcación (un repartidor con varias salidas, cada una
-            con su propia manguera y, si se quiere, su propia lanza), indique cuántas salidas hay. El caudal se
-            reparte entre ellas según la pérdida de carga propia de cada una: la que tenga menos pérdida se lleva
-            más caudal.
-          </p>
-          <label>Número de salidas</label>
-          <select value={numSalidas} onChange={(e) => cambiarNumeroSalidas(Number(e.target.value))}>
-            <option value={1}>1 (sin bifurcar)</option>
-            <option value={2}>2 (bifurcación)</option>
-            <option value={3}>3 (trifurcación)</option>
-          </select>
-
-          {numSalidas === 1 ? (
-            <>
-              <label className="calc-checkbox">
-                <input
-                  type="checkbox"
-                  checked={salidas[0].usarSideinfo}
-                  onChange={(e) => actualizarSalida(0, { usarSideinfo: e.target.checked })}
-                />
-                Añadir lanza reguladora SIDEINFO al final del tendido
-              </label>
-              {salidas[0].usarSideinfo && (
-                <>
-                  <label>Boquilla (mm)</label>
-                  <select value={salidas[0].boquillaMM} onChange={(e) => actualizarSalida(0, { boquillaMM: Number(e.target.value) })}>
-                    {boquillasSideinfo.map((b) => (
-                      <option key={b.mm} value={b.mm}>
-                        {b.mm} mm (máx. {b.presionMaxBar} bar → {b.caudalMaxLMin} l/min, {b.alcanceMaxM} m)
-                      </option>
-                    ))}
-                  </select>
-                </>
-              )}
-            </>
-          ) : (
-            salidas.map((salida, i) => (
-              <div key={i} className="calc-tramo">
-                <strong>Salida {i + 1} (punta de lanza)</strong>
-                <label>Número de tramos de esta salida</label>
-                <select value={salida.tramos.length} onChange={(e) => cambiarNumeroTramosSalida(i, Number(e.target.value))}>
-                  {[1, 2].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-                {salida.tramos.map((tramo, j) => (
-                  <div key={j} className="calc-tramo-campos">
-                    <div>
-                      <label>Diámetro</label>
-                      <select value={tramo.diametroId} onChange={(e) => actualizarTramoSalida(i, j, { diametroId: e.target.value })}>
-                        {diametrosManguera.map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.nombre}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label>Longitud (m)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={tramo.longitudM}
-                        onChange={(e) => actualizarTramoSalida(i, j, { longitudM: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                ))}
-                <label>Desnivel extra de esta salida (m, p. ej. si sube escaleras)</label>
-                <input
-                  type="number"
-                  value={salida.desnivelExtra}
-                  onChange={(e) => actualizarSalida(i, { desnivelExtra: e.target.value })}
-                />
-                <label className="calc-checkbox">
-                  <input type="checkbox" checked={salida.usarSideinfo} onChange={(e) => actualizarSalida(i, { usarSideinfo: e.target.checked })} />
-                  Lanza reguladora SIDEINFO en esta salida
-                </label>
-                {salida.usarSideinfo && (
-                  <select value={salida.boquillaMM} onChange={(e) => actualizarSalida(i, { boquillaMM: Number(e.target.value) })}>
-                    {boquillasSideinfo.map((b) => (
-                      <option key={b.mm} value={b.mm}>
-                        {b.mm} mm (máx. {b.presionMaxBar} bar → {b.caudalMaxLMin} l/min, {b.alcanceMaxM} m)
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            ))
-          )}
-          <p className="calc-hint">
-            Caudal de boquilla calibrado con el punto real de la ficha SIDEINFO (caudal = k·√presión). El alcance
-            a presiones distintas de la máxima se aproxima igual (alcance ≈ alcanceMáx·√(P/Pmáx)).
-          </p>
+          <EditorNodo nodo={nodoRaiz} onChange={setNodoRaiz} diametrosPrimerTramo={diametrosDelEquipo0} titulo="Tendido principal (desde la bomba)" />
 
           <label>Densidad relativa del fluido (agua = 1.0)</label>
           <input type="number" step="0.05" min="0.5" max="2" value={densidad} onChange={(e) => setDensidad(e.target.value)} />
@@ -577,31 +533,31 @@ export default function CalculadoraHidraulica() {
             <strong>Altura geométrica:</strong> {desnivelPrincipalM.toFixed(1)} m
           </p>
           <p>
-            <strong>Pérdida de carga en el tramo principal:</strong> {perdidaMostrada} m
+            <strong>Pérdida de carga en el tendido:</strong> {perdidaMostrada} m
           </p>
           <p>
             <strong>Altura manométrica total resultante:</strong> {alturaTotalMostrada} m
           </p>
 
-          {numSalidas > 1 && !caudalInviable && (
+          {hayBifurcacion && !caudalInviable && (
             <div className="calc-limites">
               <strong>Reparto por salida:</strong>
               <ul>
-                {resultado.ramas.map((r, i) => (
+                {resultado.hojas.map((h, i) => (
                   <li key={i}>
-                    Salida {i + 1}: {r.caudalLMin} l/min
-                    {salidasResueltas[i].boquilla
-                      ? ` · boquilla ${salidasResueltas[i].boquilla.mm} mm → ${r.presionBoquillaBar} bar, alcance ${r.alcanceBoquillaM} m`
+                    {hojasUI[i].etiqueta}: {h.caudalLMin} l/min
+                    {hojasUI[i].nodo.usarSideinfo
+                      ? ` · boquilla ${hojasUI[i].nodo.boquillaMM} mm → ${h.presionBoquillaBar} bar, alcance ${h.alcanceBoquillaM} m`
                       : ' (manguera abierta, sin lanza)'}
                   </li>
                 ))}
               </ul>
             </div>
           )}
-          {numSalidas === 1 && salidas[0].usarSideinfo && !caudalInviable && (
+          {!hayBifurcacion && nodoRaiz.usarSideinfo && !caudalInviable && (
             <p>
-              <strong>Boquilla SIDEINFO {salidas[0].boquillaMM} mm:</strong> {resultado.ramas[0].presionBoquillaBar} bar · alcance
-              estimado {resultado.ramas[0].alcanceBoquillaM} m
+              <strong>Boquilla SIDEINFO {nodoRaiz.boquillaMM} mm:</strong> {resultado.hojas[0].presionBoquillaBar} bar · alcance
+              estimado {resultado.hojas[0].alcanceBoquillaM} m
             </p>
           )}
 
@@ -671,25 +627,19 @@ export default function CalculadoraHidraulica() {
               Reduzca la longitud de manguera o use diámetros mayores.
             </p>
           )}
-          {tramoPrincipalExcedido && (
-            <p className="calc-warning">
-              ⚠️ El caudal total estimado supera el recomendado para el tramo de {tramoPrincipalExcedido.nombre} (máx.{' '}
-              {tramoPrincipalExcedido.caudalRecomendadoMax.toLocaleString('es-ES')} l/min).
-            </p>
-          )}
-          {tramosSalidaExcedidos.map((x, i) => (
+          {avisosTramos.map((a, i) => (
             <p key={i} className="calc-warning">
-              ⚠️ Salida {x.salida}: el caudal estimado supera el recomendado para el tramo de {x.tramo.nombre} (máx.{' '}
-              {x.tramo.caudalRecomendadoMax.toLocaleString('es-ES')} l/min).
+              ⚠️ El caudal que pasa por un tramo de {a.nombre} supera el recomendado (máx. {a.caudalRecomendadoMax.toLocaleString('es-ES')}{' '}
+              l/min).
             </p>
           ))}
           {boquillasFueraDeRango.map((x, i) => (
             <p key={i} className="calc-warning">
-              ⚠️ Salida {x.salida}: la presión que necesita la boquilla ({x.presionBoquillaBar} bar) supera su máximo de ficha
-              ({x.boquilla.presionMaxBar} bar); el alcance mostrado es poco fiable.
+              ⚠️ {x.etiqueta}: la presión que necesita la boquilla ({x.presionBoquillaBar} bar) supera su máximo de ficha (
+              {x.boquilla.presionMaxBar} bar); el alcance mostrado es poco fiable.
             </p>
           ))}
-          {!caudalInviable && !tramoPrincipalExcedido && tramosSalidaExcedidos.length === 0 && boquillasFueraDeRango.length === 0 && (
+          {!caudalInviable && avisosTramos.length === 0 && boquillasFueraDeRango.length === 0 && (
             <p className="calc-ok">✅ Punto de trabajo dentro de los límites recomendados.</p>
           )}
 
@@ -697,7 +647,7 @@ export default function CalculadoraHidraulica() {
             <em>Nota de campo:</em> el caudal se estima ajustando la curva característica de cada bomba (H = H0 − k·Q²) a
             los puntos oficiales de su ficha. En serie, las presiones de ambos equipos se suman (menos la pérdida del
             tramo de enlace); en paralelo, cada equipo aporta su propio caudal al mismo punto de presión, con
-            antirretorno (ninguno recibe caudal del otro). En una bifurcación, el caudal se reparte entre las salidas
+            antirretorno (ninguno recibe caudal del otro). En cada bifurcación, el caudal se reparte entre las salidas
             según su propia pérdida de carga. Evite trabajar en seco más de 3 minutos en bombas centrífugas
             convencionales.
           </p>

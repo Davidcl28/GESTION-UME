@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import CalculadoraHidraulica from './components/CalculadoraHidraulica';
-import AsistenteManuales from './components/AsistenteManuales';
 import TiempoVaciado from './components/TiempoVaciado';
 import './App.css';
 
@@ -19,12 +18,6 @@ function App() {
             Calculadora Hidráulica
           </button>
           <button
-            className={activeTab === 'manuales' ? 'active' : ''}
-            onClick={() => setActiveTab('manuales')}
-          >
-            Asistente de Manuales
-          </button>
-          <button
             className={activeTab === 'vaciado' ? 'active' : ''}
             onClick={() => setActiveTab('vaciado')}
           >
@@ -34,7 +27,6 @@ function App() {
       </header>
 
       {activeTab === 'hidraulica' && <CalculadoraHidraulica />}
-      {activeTab === 'manuales' && <AsistenteManuales />}
       {activeTab === 'vaciado' && <TiempoVaciado />}
     </div>
   );
