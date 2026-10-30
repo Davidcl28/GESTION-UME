@@ -179,3 +179,250 @@ export function estimarPuntoTrabajo({
     alcanceBoquillaM: boquilla ? Math.round(alcanceBoquillaM(presionBoquillaBar, boquilla) * 10) / 10 : null,
   };
 }
+
+// ===================== Cadenas de bombas y tendidos con bifurcación =====================
+// Generalización usada solo por la Calculadora Hidráulica cuando se activan
+// las opciones avanzadas (varios equipos en cadena, o varias salidas al
+// final del tendido). No sustituye a estimarPuntoTrabajo (que sigue usando
+// TiempoVaciado.jsx sin cambios): es la misma física, expresada de forma
+// que se puede componer (varias bombas, varias salidas) sin tener que
+// resolver un sistema de ecuaciones distinto para cada combinación.
+//
+// La idea clave es que toda "fuente de presión" (una bomba sola, dos en
+// serie, dos en paralelo) se puede representar igual: una función
+// alturaBomba(Q) que da la altura manométrica disponible para un caudal Q,
+// siempre decreciente con Q (como cualquier curva de bomba centrífuga), más
+// su altura estática máxima H0 (a caudal 0) y su caudal máximo de ficha.
+// Y toda "demanda" (un tendido con 1 a 3 salidas) se puede representar al
+// revés: cuánto caudal pasa por ella para una altura manométrica H dada en
+// el punto de reparto, siempre creciente con H. Resolver el punto de
+// trabajo es, en los dos casos, encontrar dónde esas dos curvas se cruzan.
+
+const CAUDAL_MAX_BISECCION = 50000; // l/min: cota superior generosa para acotar las bisecciones de caudal (ningún equipo del catálogo supera los 20.400 l/min de SIGEFLU)
+
+// Bisección genérica: halla el caudal Q en [0, hi] tal que f(Q) = objetivo,
+// cuando f es monótona en ese rango (creciente o decreciente según el
+// parámetro). Se usa tanto para repartir caudal entre salidas como para
+// repartirlo entre bombas en paralelo.
+function biseccionCaudal(f, objetivo, creciente, hi = CAUDAL_MAX_BISECCION) {
+  let lo = 0;
+  let h = hi;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + h) / 2;
+    const val = f(mid);
+    const porEncima = creciente ? val > objetivo : val < objetivo;
+    if (porEncima) h = mid;
+    else lo = mid;
+  }
+  return (lo + h) / 2;
+}
+
+// Convierte la curva oficial de un equipo (y su tope de ficha) en el objeto
+// "bomba" que usan las funciones de combinación y de reparto de abajo: una
+// función altura disponible = f(caudal) (monótona decreciente, el mismo
+// ajuste H0 - k·Q² que usa estimarPuntoTrabajo), su altura estática máxima
+// H0 y su caudal máximo de ficha.
+export function construirBombaSimple(curva, alturaMaximaM, caudalMaximoLMin) {
+  const { H0: H0Ajustado, k } = ajustarCurvaCuadratica(curva);
+  const H0 = Math.max(alturaMaximaM != null ? Math.min(H0Ajustado, alturaMaximaM) : H0Ajustado, 0);
+  return {
+    alturaBomba: (Q) => Math.max(H0 - k * Q * Q, 0),
+    H0,
+    caudalMaximoLMin: caudalMaximoLMin ?? null,
+  };
+}
+
+// Dos equipos conectados EN SERIE: uno impulsa al siguiente (p. ej. una
+// motobomba enlazada a la salida de una autobomba para dar más presión a
+// larga distancia, un "relevo"). Por la manguera de enlace pasa el mismo
+// caudal que por las dos bombas (es la misma agua, un único camino), así
+// que la presión que entrega la segunda se SUMA a la que llega de la
+// primera, restando la pérdida de carga (y el desnivel, si lo hay) en esa
+// manguera de enlace: es el mismo principio que el "relevo"/tandem pumping
+// en bomberos (la presión de descarga de cada bomba se suma, menos el
+// rozamiento del tramo que las conecta). El caudal máximo combinado lo
+// limita la bomba más débil de las dos: ambas bombean el mismo caudal, y
+// ninguna puede superar su propio tope de ficha.
+export function combinarBombasSerie(bombaA, bombaB, tramosEnlace = [], desnivelEnlaceM = 0, densidadRelativa = 1) {
+  const alturaBomba = (Q) => {
+    const perdidaEnlace = perdidaTendido(Q, tramosEnlace, densidadRelativa) + desnivelEnlaceM;
+    const alturaLlegaAB = Math.max(bombaA.alturaBomba(Q) - perdidaEnlace, 0);
+    return alturaLlegaAB + bombaB.alturaBomba(Q);
+  };
+  const H0 = Math.max(bombaA.H0 + bombaB.H0 - desnivelEnlaceM, 0);
+  const caps = [bombaA.caudalMaximoLMin, bombaB.caudalMaximoLMin].filter((v) => v != null);
+  const caudalMaximoLMin = caps.length ? Math.min(...caps) : null;
+  return { alturaBomba, H0, caudalMaximoLMin };
+}
+
+// Dos equipos conectados EN PARALELO: cada uno aspira de su propia fuente
+// (o está sumergido) y descarga en un punto común (colector) antes de
+// seguir por un tendido compartido - p. ej. dos autobombas alimentando la
+// misma manguera de gran diámetro. Se asume que cada salida al colector
+// lleva su propia válvula antirretorno (práctica estándar en estas
+// maniobras): ninguna bomba puede recibir caudal "hacia atrás" de la otra,
+// así que si la presión que pide el colector ya supera lo que una de las
+// bombas puede dar por sí sola, esa bomba sencillamente no aporta caudal
+// (0 l/min) y toda la aportación la hace la otra. El caudal máximo
+// combinado es la SUMA de los topes de ficha de las dos (a diferencia de
+// la serie): cada una puede dar hasta su propio máximo al mismo tiempo.
+export function combinarBombasParalelo(
+  bombaA,
+  bombaB,
+  { desnivelSuccionA = 0, desnivelSuccionB = 0, tramosConexionA = [], tramosConexionB = [] } = {},
+  densidadRelativa = 1
+) {
+  const disponibleA = (Q) =>
+    Math.max(bombaA.alturaBomba(Q) - desnivelSuccionA - perdidaTendido(Q, tramosConexionA, densidadRelativa), 0);
+  const disponibleB = (Q) =>
+    Math.max(bombaB.alturaBomba(Q) - desnivelSuccionB - perdidaTendido(Q, tramosConexionB, densidadRelativa), 0);
+
+  const H0 = Math.max(disponibleA(0), disponibleB(0));
+
+  function caudalDeA(H) {
+    if (H >= disponibleA(0)) return 0;
+    return biseccionCaudal(disponibleA, H, false);
+  }
+  function caudalDeB(H) {
+    if (H >= disponibleB(0)) return 0;
+    return biseccionCaudal(disponibleB, H, false);
+  }
+  const caudalTotalParaH = (H) => caudalDeA(H) + caudalDeB(H);
+
+  const caps = [bombaA.caudalMaximoLMin, bombaB.caudalMaximoLMin];
+  const caudalMaximoLMin = caps.every((v) => v != null) ? caps[0] + caps[1] : null;
+
+  // Altura disponible conjunta para un caudal total dado: se invierte
+  // caudalTotalParaH (decreciente en H) para hallar la H que reparte ese
+  // caudal total entre las dos bombas (respetando el antirretorno: ninguna
+  // aporta menos de 0).
+  function alturaBomba(Qtotal) {
+    let lo = 0;
+    let hi = H0;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (caudalTotalParaH(mid) < Qtotal) hi = mid;
+      else lo = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  return { alturaBomba, H0, caudalMaximoLMin, caudalDeA, caudalDeB };
+}
+
+// Resuelve el punto de trabajo de un sistema con una fuente de presión ya
+// combinada ("bomba": una sola, o varias en serie/paralelo) y un tendido
+// con 1 a 3 salidas finales (sin bifurcación, con bifurcación o con
+// trifurcación). Todas las salidas comparten el mismo punto de reparto (la
+// misma altura manométrica justo ahí), así que el caudal se reparte entre
+// ellas según la pérdida de carga propia de cada una (su manguera + su
+// lanza, si tiene + su desnivel propio, si lo hay): la salida con menos
+// pérdida se lleva más caudal, igual que pasaría con mangueras reales
+// conectadas a un mismo repartidor.
+//
+// tramosPrincipales es el tramo común ANTES del reparto (puede ir vacío si
+// no hay tramo común, p. ej. cuando solo hay una salida y toda la manguera
+// es "la salida"). ramas es la lista de salidas: cada una es
+// { tramos, boquilla, desnivelExtraM }, y debe tener siempre al menos un
+// tramo de manguera propio (con longitud > 0) si tramosPrincipales va
+// vacío, para que el reparto tenga una pérdida de carga real con la que
+// resolverse.
+export function resolverPuntoTrabajoRed({
+  bomba,
+  desnivelPrincipalM = 0,
+  tramosPrincipales = [],
+  ramas,
+  densidadRelativa = 1,
+}) {
+  const diametroEntradaMM = tramosPrincipales.length
+    ? tramosPrincipales[tramosPrincipales.length - 1].diametroMM
+    : null;
+
+  // Si hay un tramo principal antes del reparto, se añade la pérdida de la
+  // reducción/racor del repartidor (diámetro del tramo principal → de cada
+  // salida), igual que entre dos tramos cualesquiera de un mismo tendido.
+  function tramosDeRamaConEntrada(rama) {
+    if (diametroEntradaMM == null || !rama.tramos.length) return rama.tramos;
+    return [{ diametroMM: diametroEntradaMM, coeficiente: 0, longitudM: 0 }, ...rama.tramos];
+  }
+
+  function perdidaRama(Q, rama) {
+    let total = perdidaTendido(Q, tramosDeRamaConEntrada(rama), densidadRelativa);
+    if (rama.boquilla) total += presionBoquillaM(Q, rama.boquilla) * densidadRelativa;
+    total += rama.desnivelExtraM || 0;
+    return total;
+  }
+
+  function caudalRama(H, rama) {
+    return biseccionCaudal((Q) => perdidaRama(Q, rama), H, true);
+  }
+
+  function caudalTotalParaH(H) {
+    return ramas.reduce((s, r) => s + caudalRama(H, r), 0);
+  }
+
+  // f(H) es monótona creciente en H: al subir H, cada rama admite más
+  // caudal (pérdida creciente en Q), el tramo principal pierde más con ese
+  // caudal mayor, y la bomba da cada vez menos altura disponible con ese
+  // caudal mayor — los tres efectos empujan f hacia arriba. Se busca su
+  // cero por bisección, acotada entre 0 y la altura estática máxima de la
+  // bomba (cota segura: a más altura que esa, ninguna bomba da presión
+  // positiva ni con caudal cero).
+  function f(H) {
+    const Qtotal = caudalTotalParaH(H);
+    const perdidaPrincipal = perdidaTendido(Qtotal, tramosPrincipales, densidadRelativa);
+    return desnivelPrincipalM + perdidaPrincipal + H - bomba.alturaBomba(Qtotal);
+  }
+
+  let Hsol = 0;
+  if (desnivelPrincipalM < bomba.H0 && f(0) < 0) {
+    let lo = 0;
+    let hi = bomba.H0;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if (f(mid) > 0) hi = mid;
+      else lo = mid;
+    }
+    Hsol = (lo + hi) / 2;
+  }
+
+  const QtotalCrudo = caudalTotalParaH(Hsol);
+  const QtotalFinal = bomba.caudalMaximoLMin != null ? Math.min(QtotalCrudo, bomba.caudalMaximoLMin) : QtotalCrudo;
+  // Si el tope de ficha recorta el caudal total, se reparte la misma
+  // proporción a cada salida: es una aproximación (no se vuelve a resolver
+  // el reparto a ese caudal menor), consistente con cómo el resto de la
+  // aplicación ya trata los topes duros de ficha, como un recorte final y
+  // no como una incógnita más del sistema.
+  const factorReparto = QtotalCrudo > 0 ? QtotalFinal / QtotalCrudo : 0;
+
+  const perdidaPrincipalFinal = perdidaTendido(QtotalFinal, tramosPrincipales, densidadRelativa);
+
+  const caudalesRamaFinal = ramas.map((rama) => caudalRama(Hsol, rama) * factorReparto);
+  // Si el tope de caudal ha recortado el reparto, la altura en el punto de
+  // reparto ya no es la Hsol sin recortar: se recalcula a partir del
+  // caudal real (ya recortado) de la primera rama, igual que
+  // estimarPuntoTrabajo recalcula su pérdida de carga final con el caudal
+  // ya recortado en vez de reutilizar el de la bisección sin recortar.
+  const HsolFinal = ramas.length ? perdidaRama(caudalesRamaFinal[0], ramas[0]) : Hsol;
+
+  const resultadosRamas = ramas.map((rama, i) => {
+    const Qrama = caudalesRamaFinal[i];
+    const perdidaConBoquilla = perdidaRama(Qrama, rama);
+    const presionBoquillaFinal = rama.boquilla ? presionBoquillaM(Qrama, rama.boquilla) * densidadRelativa : 0;
+    const presionBoquillaBar = rama.boquilla ? Math.round((presionBoquillaFinal / 10.2) * 100) / 100 : null;
+    return {
+      caudalLMin: Math.round(Qrama),
+      perdidaCargaM: Math.round((perdidaConBoquilla - presionBoquillaFinal) * 10) / 10,
+      presionBoquillaBar,
+      alcanceBoquillaM: rama.boquilla ? Math.round(alcanceBoquillaM(presionBoquillaBar, rama.boquilla) * 10) / 10 : null,
+    };
+  });
+
+  return {
+    caudalTotalLMin: Math.round(QtotalFinal),
+    alturaManometricaTotal: Math.round((desnivelPrincipalM + perdidaPrincipalFinal + HsolFinal) * 10) / 10,
+    perdidaCargaPrincipalM: Math.round(perdidaPrincipalFinal * 10) / 10,
+    alturaEnRepartoM: Math.round(HsolFinal * 10) / 10,
+    ramas: resultadosRamas,
+  };
+}
