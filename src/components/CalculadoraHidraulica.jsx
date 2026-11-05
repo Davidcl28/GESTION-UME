@@ -744,13 +744,19 @@ export default function CalculadoraHidraulica() {
                   <li key={i}>
                     {hojasUI[i].etiqueta}: {h.caudalLMin} l/min
                     {hojasUI[i].nodo.cerrada
-                      ? ' (cerrada, de reserva)'
+                      ? ` (cerrada, de reserva) · presión en la salida: ${h.presionEnRepartoBar} bar`
                       : hojasUI[i].nodo.usarSideinfo
                       ? ` · boquilla ${hojasUI[i].nodo.boquillaMM} mm → ${h.presionBoquillaBar} bar, alcance ${h.alcanceBoquillaM} m`
-                      : ' (lanza/manguera abierta)'}
+                      : ` (lanza/manguera abierta) · presión disponible en el repartidor antes de esta manguera: ${h.presionEnRepartoBar} bar`}
                   </li>
                 ))}
               </ul>
+              <p className="calc-hint">
+                La "presión disponible" de una salida abierta es la que hay justo antes de su propia manguera
+                (en la bifurcación): con la punta abierta y el caudal fluyendo libremente, un manómetro puesto
+                ahí mismo marcaría 0, porque toda esa presión se consume en la propia manguera hasta la punta.
+                Sirve para saber si, por ejemplo, cabría poner ahí una lanza/boquilla sin quedarse corto.
+              </p>
             </div>
           )}
           {!hayBifurcacion && !nodoRaiz.cerrada && nodoRaiz.usarSideinfo && !caudalInviable && (

@@ -434,10 +434,32 @@ function construirPerfilNodo(nodo, diametroEntradaMM, densidadRelativa) {
 // repartiendo ese caudal entre todas las hojas, usando los perfiles ya
 // construidos (búsquedas en tabla). out[] acumula el resultado de cada
 // hoja en el mismo orden en que aparecen en el árbol.
-function descenderPerfil(Q, nodo, perfil, diametroEntradaMM, densidadRelativa, out) {
+//
+// Hreparto es la altura manométrica (m) en el punto exacto donde esta
+// hoja arranca (el reparto de la bifurcación de la que cuelga, o la
+// propia bomba si no hay bifurcación): es la presión que le "llega" a esa
+// salida antes de que su propia manguera empiece a perderla. Con una
+// boquilla SIDEINFO, esa presión se consume regulándola (se muestra ya la
+// presión real en la boquilla, más informativa). Sin boquilla (manguera o
+// lanza abierta), toda esa presión se disipa en el propio tendido de la
+// salida hasta llegar a caudal con la punta abierta a la atmósfera (0 de
+// lectura en un manómetro ahí), así que Hreparto es la presión de
+// referencia útil: cuánta hay disponible en ese punto del repartidor,
+// antes de que la propia manguera de la salida la vaya consumiendo. En
+// una salida cerrada (sin caudal), al no haber pérdida de carga, esa
+// misma Hreparto es exactamente lo que marcaría un manómetro ahí mismo.
+function descenderPerfil(Q, nodo, perfil, diametroEntradaMM, densidadRelativa, Hreparto, out) {
   if (!nodo.bifurcacion) {
+    const presionEnRepartoBar = Math.round((Hreparto / 10.2) * 100) / 100;
     if (nodo.cerrada) {
-      out.push({ nodo, caudalLMin: 0, perdidaCargaM: 0, presionBoquillaBar: null, alcanceBoquillaM: null });
+      out.push({
+        nodo,
+        caudalLMin: 0,
+        perdidaCargaM: 0,
+        presionBoquillaBar: null,
+        alcanceBoquillaM: null,
+        presionEnRepartoBar,
+      });
       return;
     }
     const tramosConEntrada =
@@ -446,21 +468,23 @@ function descenderPerfil(Q, nodo, perfil, diametroEntradaMM, densidadRelativa, o
         : nodo.tramos;
     const perdidaBoquilla = nodo.boquilla ? presionBoquillaM(Q, nodo.boquilla) * densidadRelativa : 0;
     const presionBoquillaBar = nodo.boquilla ? Math.round((perdidaBoquilla / 10.2) * 100) / 100 : null;
+    const perdidaPropia = perdidaTendido(Q, tramosConEntrada, densidadRelativa) + (nodo.desnivelPropioM || 0);
     out.push({
       nodo,
       caudalLMin: Math.round(Q),
-      perdidaCargaM: Math.round((perdidaTendido(Q, tramosConEntrada, densidadRelativa) + (nodo.desnivelPropioM || 0)) * 10) / 10,
+      presionEnRepartoBar,
+      perdidaCargaM: Math.round(perdidaPropia * 10) / 10,
       presionBoquillaBar,
       alcanceBoquillaM: nodo.boquilla ? Math.round(alcanceBoquillaM(presionBoquillaBar, nodo.boquilla) * 10) / 10 : null,
     });
     return;
   }
 
-  const Hreparto = perfil.repartoParaCaudal(Q);
+  const HrepartoRamas = perfil.repartoParaCaudal(Q);
   nodo.bifurcacion.ramas.forEach((r, i) => {
     const perfilRama = perfil.perfilesRamas[i];
-    const Qr = perfilRama.invertir(Hreparto);
-    descenderPerfil(Qr, r, perfilRama, perfil.diametroSalida, densidadRelativa, out);
+    const Qr = perfilRama.invertir(HrepartoRamas);
+    descenderPerfil(Qr, r, perfilRama, perfil.diametroSalida, densidadRelativa, HrepartoRamas, out);
   });
 }
 
@@ -505,10 +529,10 @@ export function resolverPuntoTrabajoArbol({ bomba, desnivelPrincipalM = 0, nodoR
   }
 
   const QsolFinal = bomba.caudalMaximoLMin != null ? Math.min(Qsol, bomba.caudalMaximoLMin) : Qsol;
+  const perdidaTotal = perfilRaiz.evaluar(QsolFinal);
 
   const hojas = [];
-  descenderPerfil(QsolFinal, nodoRaiz, perfilRaiz, null, densidadRelativa, hojas);
-  const perdidaTotal = perfilRaiz.evaluar(QsolFinal);
+  descenderPerfil(QsolFinal, nodoRaiz, perfilRaiz, null, densidadRelativa, perdidaTotal, hojas);
 
   return {
     caudalTotalLMin: Math.round(QsolFinal),
