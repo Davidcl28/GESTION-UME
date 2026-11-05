@@ -303,18 +303,35 @@ export const catalogoMedios = [
   },
 ];
 
-// Turbobomba: no tiene curva de altura/caudal convencional (es un eyector accionado
-// por el agua limpia de una autobomba, sin motor ni succión propia), por lo que se
-// trata aparte en vez de en el catálogo con curva.
+// Turbobomba: no tiene curva de altura/caudal convencional, es un eyector
+// (efecto venturi) accionado por el agua limpia de una autobomba o
+// motobomba, sin motor ni succión propia: el agua motriz, al pasar por
+// ella, crea una depresión que succiona agua sucia desde el punto de
+// achique sin mezclar los dos circuitos. Por eso se trata aparte en vez de
+// en el catálogo con curva H(Q) habitual: aquí lo que varía el
+// rendimiento no es su propia altura manométrica, sino la presión del
+// agua motriz que recibe y la profundidad desde la que aspira.
+// Tabla real de caudal de entrada (agua motriz) y caudal de salida
+// (trasvasado) según la presión de entrada y la altura de aspiración
+// (manual de hidráulica de campo UIEM Canarias; fuente original citada:
+// uralasolutions.com/product/turbobomba).
 export const turbobomba = {
   nombre: 'Turbobomba',
   entrada: '70 mm (opcional 45 mm con reducción)',
-  presionEntradaMin: 4,
-  presionEntradaMax: 10,
-  caudalA10Bar: 756, // l/min
-  presionSalida: 2, // bar
-  uso: 'Accionada por agua limpia de una autobomba; succiona agua sucia sin mezclar los dos circuitos.',
+  uso: 'Accionada por agua limpia de una autobomba o motobomba; crea una depresión que succiona agua sucia sin mezclar los dos circuitos - ideal para achique/trasvase.',
   solidos: { apto: true, detalle: 'Diseñada para succionar agua sucia sin mezclarla con el circuito limpio' },
+  pesoKg: 14.5,
+  diametroMM: 360,
+  alturaMM: 300,
+  // Cada fila: presión de salida de la bomba que la acciona (bar), caudal
+  // de entrada que necesita a esa presión (l/min), y el caudal de salida
+  // resultante (l/min) para cada altura de aspiración medida (2/4/6/8 m).
+  tabla: [
+    { presionEntradaBar: 4, caudalEntradaLMin: 810, salidaPorAlturaLMin: { 2: 1120, 4: 1120, 6: 1015, 8: 640 } },
+    { presionEntradaBar: 6, caudalEntradaLMin: 1000, salidaPorAlturaLMin: { 2: 1390, 4: 1390, 6: 1330, 8: 1090 } },
+    { presionEntradaBar: 8, caudalEntradaLMin: 1150, salidaPorAlturaLMin: { 2: 1660, 4: 1660, 6: 1530, 8: 1300 } },
+    { presionEntradaBar: 10, caudalEntradaLMin: 1300, salidaPorAlturaLMin: { 2: 1875, 4: 1875, 6: 1700, 8: 1500 } },
+  ],
 };
 
 // Diámetros de manguera disponibles y coeficiente de pérdida de carga

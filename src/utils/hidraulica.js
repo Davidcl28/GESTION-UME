@@ -517,3 +517,52 @@ export function resolverPuntoTrabajoArbol({ bomba, desnivelPrincipalM = 0, nodoR
     hojas,
   };
 }
+
+// ===================== Turbobomba =====================
+// La turbobomba no tiene curva H(Q) propia (ver turbobomba en
+// data/equipos.js): su rendimiento solo se conoce en los puntos reales de
+// su ficha (4 presiones de entrada x 4 alturas de aspiración). Fuera de
+// esos puntos se interpola linealmente en las dos variables; fuera del
+// rango medido (presión < 4 o > 10 bar, altura < 2 o > 8 m) se acota al
+// extremo más cercano en vez de extrapolar sin dato real que lo respalde.
+function interpolarLineal(x, x0, y0, x1, y1) {
+  if (x1 === x0) return y0;
+  const t = (x - x0) / (x1 - x0);
+  return y0 + t * (y1 - y0);
+}
+
+const ALTURAS_TURBOBOMBA = [2, 4, 6, 8];
+
+function salidaEnFilaTurbobomba(fila, alturaM) {
+  const alturaClamp = Math.min(Math.max(alturaM, ALTURAS_TURBOBOMBA[0]), ALTURAS_TURBOBOMBA[ALTURAS_TURBOBOMBA.length - 1]);
+  for (let i = 0; i < ALTURAS_TURBOBOMBA.length - 1; i++) {
+    const a = ALTURAS_TURBOBOMBA[i];
+    const b = ALTURAS_TURBOBOMBA[i + 1];
+    if (alturaClamp >= a && alturaClamp <= b) {
+      return interpolarLineal(alturaClamp, a, fila.salidaPorAlturaLMin[a], b, fila.salidaPorAlturaLMin[b]);
+    }
+  }
+  return fila.salidaPorAlturaLMin[ALTURAS_TURBOBOMBA[ALTURAS_TURBOBOMBA.length - 1]];
+}
+
+// Dada la presión de salida de la bomba que acciona la turbobomba (bar) y
+// la altura de aspiración (profundidad del punto de achique, m), devuelve
+// el caudal de entrada (agua motriz) que necesita y el caudal de salida
+// (trasvasado) resultante, interpolando sobre la tabla real de la ficha.
+export function turbobombaCaudalSalida(presionEntradaBar, alturaAspiracionM, tabla) {
+  const pClamp = Math.min(Math.max(presionEntradaBar, tabla[0].presionEntradaBar), tabla[tabla.length - 1].presionEntradaBar);
+  for (let i = 0; i < tabla.length - 1; i++) {
+    const filaA = tabla[i];
+    const filaB = tabla[i + 1];
+    if (pClamp >= filaA.presionEntradaBar && pClamp <= filaB.presionEntradaBar) {
+      const salidaA = salidaEnFilaTurbobomba(filaA, alturaAspiracionM);
+      const salidaB = salidaEnFilaTurbobomba(filaB, alturaAspiracionM);
+      return {
+        caudalEntradaLMin: interpolarLineal(pClamp, filaA.presionEntradaBar, filaA.caudalEntradaLMin, filaB.presionEntradaBar, filaB.caudalEntradaLMin),
+        caudalSalidaLMin: interpolarLineal(pClamp, filaA.presionEntradaBar, salidaA, filaB.presionEntradaBar, salidaB),
+      };
+    }
+  }
+  const ultima = tabla[tabla.length - 1];
+  return { caudalEntradaLMin: ultima.caudalEntradaLMin, caudalSalidaLMin: salidaEnFilaTurbobomba(ultima, alturaAspiracionM) };
+}
