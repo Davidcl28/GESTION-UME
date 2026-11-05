@@ -3,10 +3,17 @@ import { boquillasSideinfo, catalogoMedios, diametrosManguera, LIMITE_SUCCION_GE
 import { construirBombaSimple, combinarBombasSerie, combinarBombasParalelo, resolverPuntoTrabajoArbol } from '../utils/hidraulica';
 import './CalculadoraHidraulica.css';
 
+// Diámetros reales que admite la salida de un equipo. Si para un diámetro
+// de racor hay también una variante de alta resistencia (HR), se ofrece
+// igualmente aquí: el racor es el mismo tamaño, solo cambia la manguera
+// que se le acople, así que no tiene sentido restringir la HR a tramos
+// posteriores - es justo en circuitos de alta presión (donde la manguera
+// estándar puede quedarse corta de presión de trabajo) donde más falta
+// hace poder elegirla ya en el primer tramo.
 function diametrosDeEquipo(medio) {
-  return (medio.diametrosDisponibles || diametrosManguera.map((d) => d.id)).map(
-    (id) => diametrosManguera.find((d) => d.id === id)
-  );
+  const ids = medio.diametrosDisponibles || diametrosManguera.map((d) => d.id);
+  const idsConHR = ids.flatMap((id) => (diametrosManguera.some((d) => d.id === `${id}hr`) ? [id, `${id}hr`] : [id]));
+  return idsConHR.map((id) => diametrosManguera.find((d) => d.id === id));
 }
 
 function tramoPorDefecto(diametroId, longitudM = 20) {
@@ -126,6 +133,16 @@ function recolectarAvisosTramos(nodo, caudalesHoja, cursor, avisos) {
     if (d && caudalNodo > d.caudalRecomendadoMax) avisos.push({ nombre: d.nombre, caudalRecomendadoMax: d.caudalRecomendadoMax });
   });
   return caudalNodo;
+}
+
+// Recoge, en un Set, los id de todos los diámetros de manguera usados en
+// cualquier punto del árbol (para el aviso de presión máxima: la presión
+// total del sistema es la misma para cualquier tramo que esté pegado a la
+// bomba, así que se comprueba contra todos los diámetros presentes, no
+// solo los de las hojas).
+function recolectarDiametrosUsados(nodo, set) {
+  nodo.tramos.forEach((t) => set.add(t.diametroId));
+  if (nodo.bifurcacion) nodo.bifurcacion.ramas.forEach((r) => recolectarDiametrosUsados(r, set));
 }
 
 // Datos de curva/topes de un equipo (y, si aplica, de su circuito seleccionado).
@@ -451,6 +468,32 @@ export default function CalculadoraHidraulica() {
       .filter(Boolean);
   }, [caudalInviable, resultado, hojasUI]);
 
+  // Presión máxima que aguanta la propia manguera (no la bomba): la presión
+  // del sistema es más alta cuanto más cerca de la bomba, así que se
+  // compara la presión total (la máxima posible en cualquier punto) contra
+  // el límite de CADA diámetro usado en el tendido, estén donde estén. Es
+  // un aviso conservador: un tramo muy alejado de la bomba, tras perder
+  // mucha presión por el camino, podría no llegar realmente a ese nivel.
+  const presionTotalBar = !caudalInviable ? resultado.alturaManometricaTotal / 10.2 : 0;
+  const avisosPresionManguera = useMemo(() => {
+    if (caudalInviable) return [];
+    const idsUsados = new Set();
+    recolectarDiametrosUsados(nodoRaiz, idsUsados);
+    const avisos = [];
+    idsUsados.forEach((id) => {
+      const d = diametrosManguera.find((x) => x.id === id);
+      if (d && d.presionTrabajoBar != null && presionTotalBar > d.presionTrabajoBar) {
+        avisos.push({
+          nombre: d.nombre,
+          presionTrabajoBar: d.presionTrabajoBar,
+          presionRoturaBar: d.presionRoturaBar,
+          superaRotura: d.presionRoturaBar != null && presionTotalBar > d.presionRoturaBar,
+        });
+      }
+    });
+    return avisos;
+  }, [caudalInviable, nodoRaiz, presionTotalBar]);
+
   return (
     <div>
       <h3>🧮 Calculadora de Rendimiento y Extracción</h3>
@@ -773,7 +816,22 @@ export default function CalculadoraHidraulica() {
               {x.boquilla.presionMaxBar} bar); el alcance mostrado es poco fiable.
             </p>
           ))}
-          {!caudalInviable && avisosTramos.length === 0 && boquillasFueraDeRango.length === 0 && (
+          {avisosPresionManguera.map((a, i) =>
+            a.superaRotura ? (
+              <p key={i} className="calc-danger">
+                ⛔ PELIGRO: la presión total del sistema ({presionTotalBar.toFixed(1)} bar) supera la de ROTURA de la manguera de{' '}
+                {a.nombre} (~{a.presionRoturaBar} bar). Riesgo de reventón si ese tramo está cerca de la bomba: use una manguera de
+                mayor resistencia (HR) o reduzca la presión de la bomba en ese tendido.
+              </p>
+            ) : (
+              <p key={i} className="calc-warning">
+                ⚠️ La manguera de {a.nombre} está pensada para hasta {a.presionTrabajoBar} bar de trabajo, y la presión total del
+                sistema ({presionTotalBar.toFixed(1)} bar) la supera. Es un aviso conservador (compara con la presión máxima en la
+                bomba): solo hay riesgo real si ese tramo concreto está cerca de ella, antes de perder presión por el camino.
+              </p>
+            )
+          )}
+          {!caudalInviable && avisosTramos.length === 0 && boquillasFueraDeRango.length === 0 && avisosPresionManguera.length === 0 && (
             <p className="calc-ok">✅ Punto de trabajo dentro de los límites recomendados.</p>
           )}
 

@@ -295,15 +295,31 @@ export const turbobomba = {
 //   pérdida(bar/100m) = coeficiente * (Q/100)^2
 // Los coeficientes de 25/45/70mm se han ajustado a la tabla real de pérdidas
 // de carga (UME): ~40 puntos (caudal, pérdida) muestran que pérdida =
-// c·Q² con muchísima precisión para los tres diámetros, y que a su vez
-// c = 5266,9 / d(mm)^5 (regresión log-log casi perfecta entre los tres
-// diámetros, pendiente -5,00). El resto de diámetros (50/80/100/150, sin
-// dato propio en la tabla) usan ese mismo ajuste d^-5 extrapolado.
+// c·Q² con muchísima precisión para los tres diámetros (confirmado también
+// contra la fórmula de Darcy-Weisbach de la propia tabla oficial), y que a
+// su vez c·d(mm)^5 ≈ 52.669.000 es prácticamente constante entre ellos
+// (regresión log-log casi perfecta, pendiente -5,00). El resto de
+// diámetros (50/80/100/150, sin dato propio en la tabla) usan ese mismo
+// ajuste d^-5 extrapolado.
+//
+// presionTrabajoBar / presionRoturaBar son los límites de presión de la
+// propia manguera (no de la bomba), tomados literalmente de la tabla
+// oficial de presión de trabajo/rotura por diámetro; se usan para avisar
+// si la presión del sistema supera lo que esa manguera concreta aguanta,
+// aunque la bomba y el resto del tendido serían capaces de darla. Las
+// variantes "HR" (alta resistencia) son el mismo diámetro interior y, por
+// tanto, el mismo coeficiente de pérdida de carga, pero aguantan mucha más
+// presión (manguera de material reforzado); solo hay dato oficial de HR
+// para 45 y 70 mm, no para 25 mm. Los diámetros sin dato oficial de
+// presión (50/80/100/150) se dejan sin presionTrabajoBar: no se avisa de
+// nada para ellos en vez de inventar un límite.
 export const diametrosManguera = [
-  { id: '25', nombre: '25 mm', coeficiente: 5.41, caudalRecomendadoMax: 250 },
-  { id: '45', nombre: '45 mm', coeficiente: 0.286, caudalRecomendadoMax: 1000 },
+  { id: '25', nombre: '25 mm', coeficiente: 5.41, caudalRecomendadoMax: 250, presionTrabajoBar: 40, presionRoturaBar: 70 },
+  { id: '45', nombre: '45 mm', coeficiente: 0.286, caudalRecomendadoMax: 1000, presionTrabajoBar: 20, presionRoturaBar: 60 },
+  { id: '45hr', nombre: '45 mm (alta resistencia / HR)', coeficiente: 0.286, caudalRecomendadoMax: 1000, presionTrabajoBar: 50, presionRoturaBar: 120 },
   { id: '50', nombre: '50 mm', coeficiente: 0.16854, caudalRecomendadoMax: 1350 },
-  { id: '70', nombre: '70 mm', coeficiente: 0.03144, caudalRecomendadoMax: 3000 },
+  { id: '70', nombre: '70 mm', coeficiente: 0.03144, caudalRecomendadoMax: 3000, presionTrabajoBar: 15, presionRoturaBar: 50 },
+  { id: '70hr', nombre: '70 mm (alta resistencia / HR)', coeficiente: 0.03144, caudalRecomendadoMax: 3000, presionTrabajoBar: 50, presionRoturaBar: 120 },
   { id: '80', nombre: '80 mm', coeficiente: 0.016075, caudalRecomendadoMax: 3500 },
   { id: '100', nombre: '100 mm (rígida/semirrígida)', coeficiente: 0.0052669, caudalRecomendadoMax: 6000 },
   { id: '150', nombre: '150 mm (Storz 6" / rígida)', coeficiente: 0.0006936, caudalRecomendadoMax: 12000 },
