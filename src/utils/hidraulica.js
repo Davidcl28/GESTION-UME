@@ -388,6 +388,12 @@ function construirPerfilNodo(nodo, diametroEntradaMM, densidadRelativa) {
       : nodo.tramos;
 
   if (!nodo.bifurcacion) {
+    if (nodo.cerrada) {
+      // Llave cerrada (salida de reserva): resistencia infinita, nunca pasa
+      // caudal por aquí sea cual sea la presión disponible, así que todo el
+      // caudal lo reparten las demás salidas abiertas del mismo punto.
+      return { evaluar: () => Infinity, invertir: () => 0 };
+    }
     // Qref es arbitrario (>0): como la pérdida es exactamente A·Q², calibrar
     // A con un único punto de referencia da el coeficiente exacto, no una
     // aproximación.
@@ -430,6 +436,10 @@ function construirPerfilNodo(nodo, diametroEntradaMM, densidadRelativa) {
 // hoja en el mismo orden en que aparecen en el árbol.
 function descenderPerfil(Q, nodo, perfil, diametroEntradaMM, densidadRelativa, out) {
   if (!nodo.bifurcacion) {
+    if (nodo.cerrada) {
+      out.push({ nodo, caudalLMin: 0, perdidaCargaM: 0, presionBoquillaBar: null, alcanceBoquillaM: null });
+      return;
+    }
     const tramosConEntrada =
       diametroEntradaMM != null && nodo.tramos.length
         ? [{ diametroMM: diametroEntradaMM, coeficiente: 0, longitudM: 0 }, ...nodo.tramos]
@@ -468,6 +478,7 @@ function descenderPerfil(Q, nodo, perfil, diametroEntradaMM, densidadRelativa, o
 //     desnivelPropioM: 0,       // desnivel propio de este tramo (p. ej. escaleras)
 //     bifurcacion: null | { ramas: [nodo, nodo, ...] },
 //     boquilla,                 // solo relevante si no bifurca (es una hoja/punta de lanza)
+//     cerrada: false,           // solo relevante si no bifurca: llave cerrada (salida de reserva), nunca pasa caudal por aquí
 //   }
 // Si el tope de caudal de ficha recorta el resultado, se vuelve a recorrer
 // el árbol entero con el caudal ya recortado (no es una aproximación por

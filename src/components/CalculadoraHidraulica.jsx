@@ -42,6 +42,7 @@ function crearNodoHoja(diametroId, longitudM = 20) {
     bifurcacion: null, // null | { ramas: [nodo, nodo, ...] }
     usarSideinfo: false,
     boquillaMM: boquillasSideinfo[2].mm,
+    cerrada: false, // salida de reserva (p. ej. para un foco secundario): no fluye ahora, no consume presión del sistema
   };
 }
 
@@ -82,13 +83,13 @@ function bifurcarEnTramo(nodo, indice, n, distanciaM) {
   const restoTramosOriginal = nodo.tramos.slice(indice + 1);
   const tramosDespues = remanente > 0 ? [{ diametroId: tramo.diametroId, longitudM: remanente }, ...restoTramosOriginal] : restoTramosOriginal;
 
-  const huboAlgoDespues = tramosDespues.length > 0 || nodo.usarSideinfo;
+  const huboAlgoDespues = tramosDespues.length > 0 || nodo.usarSideinfo || nodo.cerrada;
   const primeraRama = huboAlgoDespues
-    ? { tramos: tramosDespues, desnivelPropio: 0, bifurcacion: null, usarSideinfo: nodo.usarSideinfo, boquillaMM: nodo.boquillaMM }
+    ? { tramos: tramosDespues, desnivelPropio: 0, bifurcacion: null, usarSideinfo: nodo.usarSideinfo, boquillaMM: nodo.boquillaMM, cerrada: nodo.cerrada }
     : crearNodoHoja(tramo.diametroId, 20);
   const ramas = [primeraRama];
   while (ramas.length < n) ramas.push(crearNodoHoja(tramo.diametroId, 20));
-  return { tramos: tramosAntes, desnivelPropio: nodo.desnivelPropio, bifurcacion: { ramas }, usarSideinfo: false, boquillaMM: boquillasSideinfo[2].mm };
+  return { tramos: tramosAntes, desnivelPropio: nodo.desnivelPropio, bifurcacion: { ramas }, usarSideinfo: false, boquillaMM: boquillasSideinfo[2].mm, cerrada: false };
 }
 
 function quitarBifurcacion(nodo) {
@@ -106,6 +107,7 @@ function resolverNodo(nodo) {
     desnivelPropioM: Number(nodo.desnivelPropio) || 0,
     bifurcacion: nodo.bifurcacion ? { ramas: nodo.bifurcacion.ramas.map(resolverNodo) } : null,
     boquilla: !nodo.bifurcacion && nodo.usarSideinfo ? boquillasSideinfo.find((b) => b.mm === nodo.boquillaMM) : undefined,
+    cerrada: !nodo.bifurcacion && !!nodo.cerrada,
   };
 }
 
@@ -283,13 +285,23 @@ function EditorNodo({ nodo, onChange, diametrosPrimerTramo, titulo }) {
         <>
           <label>¿Qué hay en la punta de esta salida?</label>
           <select
-            value={nodo.usarSideinfo ? 'sideinfo' : 'abierta'}
-            onChange={(e) => onChange({ ...nodo, usarSideinfo: e.target.value === 'sideinfo' })}
+            value={nodo.cerrada ? 'cerrada' : nodo.usarSideinfo ? 'sideinfo' : 'abierta'}
+            onChange={(e) => {
+              const v = e.target.value;
+              onChange({ ...nodo, cerrada: v === 'cerrada', usarSideinfo: v === 'sideinfo' });
+            }}
           >
             <option value="abierta">Manguera / lanza abierta (sin regular presión)</option>
             <option value="sideinfo">Lanza reguladora SIDEINFO</option>
+            <option value="cerrada">Cerrada (de reserva, p. ej. para un foco secundario)</option>
           </select>
-          {nodo.usarSideinfo && (
+          {nodo.cerrada && (
+            <p className="calc-hint">
+              Esta salida se trata como si su llave estuviera cerrada: no fluye agua por ella ahora, y todo el
+              caudal disponible lo reparten las demás salidas abiertas.
+            </p>
+          )}
+          {!nodo.cerrada && nodo.usarSideinfo && (
             <select value={nodo.boquillaMM} onChange={(e) => onChange({ ...nodo, boquillaMM: Number(e.target.value) })}>
               {boquillasSideinfo.map((b) => (
                 <option key={b.mm} value={b.mm}>
@@ -727,7 +739,9 @@ export default function CalculadoraHidraulica() {
                 {resultado.hojas.map((h, i) => (
                   <li key={i}>
                     {hojasUI[i].etiqueta}: {h.caudalLMin} l/min
-                    {hojasUI[i].nodo.usarSideinfo
+                    {hojasUI[i].nodo.cerrada
+                      ? ' (cerrada, de reserva)'
+                      : hojasUI[i].nodo.usarSideinfo
                       ? ` · boquilla ${hojasUI[i].nodo.boquillaMM} mm → ${h.presionBoquillaBar} bar, alcance ${h.alcanceBoquillaM} m`
                       : ' (lanza/manguera abierta)'}
                   </li>
@@ -735,7 +749,7 @@ export default function CalculadoraHidraulica() {
               </ul>
             </div>
           )}
-          {!hayBifurcacion && nodoRaiz.usarSideinfo && !caudalInviable && (
+          {!hayBifurcacion && !nodoRaiz.cerrada && nodoRaiz.usarSideinfo && !caudalInviable && (
             <p>
               <strong>Boquilla SIDEINFO {nodoRaiz.boquillaMM} mm:</strong> {resultado.hojas[0].presionBoquillaBar} bar · alcance
               estimado {resultado.hojas[0].alcanceBoquillaM} m
