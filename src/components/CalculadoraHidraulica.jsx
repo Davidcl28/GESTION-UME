@@ -4,16 +4,20 @@ import { construirBombaSimple, combinarBombasSerie, combinarBombasParalelo, reso
 import './CalculadoraHidraulica.css';
 
 // Diámetros reales que admite la salida de un equipo. Si para un diámetro
-// de racor hay también una variante de alta resistencia (HR), se ofrece
-// igualmente aquí: el racor es el mismo tamaño, solo cambia la manguera
-// que se le acople, así que no tiene sentido restringir la HR a tramos
-// posteriores - es justo en circuitos de alta presión (donde la manguera
-// estándar puede quedarse corta de presión de trabajo) donde más falta
-// hace poder elegirla ya en el primer tramo.
+// de racor hay también variantes de marca/resistencia concretas (HR,
+// BLINDEX, GOMDUR, GOMTEX...), se ofrecen igualmente aquí: el racor es el
+// mismo tamaño, solo cambia la manguera que se le acople, así que no tiene
+// sentido restringirlas a tramos posteriores - es justo en circuitos de
+// alta presión (donde la manguera genérica puede quedarse corta de
+// presión de trabajo) donde más falta hace poder elegirlas ya en el
+// primer tramo.
 function diametrosDeEquipo(medio) {
   const ids = medio.diametrosDisponibles || diametrosManguera.map((d) => d.id);
-  const idsConHR = ids.flatMap((id) => (diametrosManguera.some((d) => d.id === `${id}hr`) ? [id, `${id}hr`] : [id]));
-  return idsConHR.map((id) => diametrosManguera.find((d) => d.id === id));
+  const idsConVariantes = ids.flatMap((id) => {
+    const variantes = diametrosManguera.filter((d) => d.id === id || d.id === `${id}hr` || d.id.startsWith(`${id}-`));
+    return variantes.length ? variantes.map((v) => v.id) : [id];
+  });
+  return idsConVariantes.map((id) => diametrosManguera.find((d) => d.id === id));
 }
 
 function tramoPorDefecto(diametroId, longitudM = 20) {

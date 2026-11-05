@@ -274,6 +274,33 @@ export const catalogoMedios = [
       { altura: 260, caudal: 2 },
     ],
   },
+  {
+    // Vehículo nodriza (apoyo logístico de agua, no un "medio de extracción"
+    // propiamente): depósito de 13.500 l y bomba MG MAB 300. Datos de la
+    // ficha de prestaciones de la bomba: un único punto de rendimiento por
+    // circuito (alta/media presión), sin curva completa - igual que WICK,
+    // tratar el resultado con cautela.
+    id: 'nodriza-mab300',
+    nombre: 'Nodriza MAB 300 (apoyo logístico de agua, 13.500 l)',
+    uso: 'Vehículo de apoyo logístico: trasvase/relleno de autobombas desde su depósito de 13.500 l, o impulsión directa a un tendido con la bomba MAB 300.',
+    succionMax: undefined, // no especificado en la ficha de prestaciones; se usa el límite general de 8 m
+    diametrosDisponibles: ['70', '45', '25'], // racores de impulsión BARNA (dotación: 2x70, 1x45, 2x25) + boca de monitor de 3" no modelada
+    solidos: { apto: false },
+    circuitos: [
+      {
+        id: 'media',
+        nombre: 'Media presión (normal)',
+        caudalMaximoLMin: 3200, // 3200 l/min a 8 bar (único dato oficial de la ficha de prestaciones)
+        curva: [{ altura: 81.6, caudal: 3200 }], // 8 bar → 3200 l/min
+      },
+      {
+        id: 'alta',
+        nombre: 'Alta presión',
+        caudalMaximoLMin: 400, // 400 l/min a 10 bar (único dato oficial de la ficha de prestaciones)
+        curva: [{ altura: 102, caudal: 400 }], // 10 bar → 400 l/min
+      },
+    ],
+  },
 ];
 
 // Turbobomba: no tiene curva de altura/caudal convencional (es un eyector accionado
@@ -303,23 +330,41 @@ export const turbobomba = {
 // ajuste d^-5 extrapolado.
 //
 // presionTrabajoBar / presionRoturaBar son los límites de presión de la
-// propia manguera (no de la bomba), tomados literalmente de la tabla
-// oficial de presión de trabajo/rotura por diámetro; se usan para avisar
-// si la presión del sistema supera lo que esa manguera concreta aguanta,
-// aunque la bomba y el resto del tendido serían capaces de darla. Las
-// variantes "HR" (alta resistencia) son el mismo diámetro interior y, por
-// tanto, el mismo coeficiente de pérdida de carga, pero aguantan mucha más
-// presión (manguera de material reforzado); solo hay dato oficial de HR
-// para 45 y 70 mm, no para 25 mm. Los diámetros sin dato oficial de
-// presión (50/80/100/150) se dejan sin presionTrabajoBar: no se avisa de
-// nada para ellos en vez de inventar un límite.
+// propia manguera (no de la bomba), tomados literalmente de tablas
+// oficiales; se usan para avisar si la presión del sistema supera lo que
+// esa manguera concreta aguanta, aunque la bomba y el resto del tendido
+// serían capaces de darla. Los diámetros sin dato oficial de presión
+// (50/80/100/150) se dejan sin presionTrabajoBar: no se avisa de nada para
+// ellos en vez de inventar un límite.
+//
+// Además de los diámetros "genéricos" (valores de una tabla de presión de
+// trabajo/rotura sin marca específica), se incluyen las marcas reales de
+// manguera en dotación UME (manual de hidráulica de campo, UIEM Canarias),
+// cada una con su propia presión de trabajo/rotura: BLINDEX, GOMDUR 4K y
+// GOMTEX tienen la misma presión de trabajo que el genérico ronda, pero no
+// son idénticas - úsense si se sabe qué manguera concreta se tiene
+// cargada, para un aviso de presión más preciso que el genérico. H-RISE
+// GOMTEX es la manguera de alta resistencia (antes "HR" en este catálogo):
+// mismo diámetro interior y coeficiente de pérdida que el genérico, pero
+// mucho más resistente a presión (material reforzado); solo existe en
+// 45 y 70 mm, no en 25 mm.
 export const diametrosManguera = [
-  { id: '25', nombre: '25 mm', coeficiente: 5.41, caudalRecomendadoMax: 250, presionTrabajoBar: 40, presionRoturaBar: 70 },
-  { id: '45', nombre: '45 mm', coeficiente: 0.286, caudalRecomendadoMax: 1000, presionTrabajoBar: 20, presionRoturaBar: 60 },
-  { id: '45hr', nombre: '45 mm (alta resistencia / HR)', coeficiente: 0.286, caudalRecomendadoMax: 1000, presionTrabajoBar: 50, presionRoturaBar: 120 },
+  { id: '25', nombre: '25 mm (genérica)', coeficiente: 5.41, caudalRecomendadoMax: 250, presionTrabajoBar: 40, presionRoturaBar: 70 },
+  { id: '25-blindex', nombre: '25 mm BLINDEX', coeficiente: 5.41, caudalRecomendadoMax: 250, presionTrabajoBar: 40, presionRoturaBar: 80 },
+  { id: '25-gomdur', nombre: '25 mm GOMDUR 4K', coeficiente: 5.41, caudalRecomendadoMax: 250, presionTrabajoBar: 30, presionRoturaBar: 91 },
+  { id: '25-gomtex', nombre: '25 mm GOMTEX', coeficiente: 5.41, caudalRecomendadoMax: 250, presionTrabajoBar: 30, presionRoturaBar: 90 },
+  { id: '45', nombre: '45 mm (genérica)', coeficiente: 0.286, caudalRecomendadoMax: 1000, presionTrabajoBar: 20, presionRoturaBar: 60 },
+  { id: '45-blindex', nombre: '45 mm BLINDEX', coeficiente: 0.286, caudalRecomendadoMax: 1000, presionTrabajoBar: 30, presionRoturaBar: 60 },
+  { id: '45-gomdur', nombre: '45 mm GOMDUR 4K', coeficiente: 0.286, caudalRecomendadoMax: 1000, presionTrabajoBar: 21, presionRoturaBar: 62 },
+  { id: '45-gomtex', nombre: '45 mm GOMTEX', coeficiente: 0.286, caudalRecomendadoMax: 1000, presionTrabajoBar: 20, presionRoturaBar: 62 },
+  { id: '45hr', nombre: '45 mm H-RISE GOMTEX (alta resistencia)', coeficiente: 0.286, caudalRecomendadoMax: 1000, presionTrabajoBar: 50, presionRoturaBar: 120 },
   { id: '50', nombre: '50 mm', coeficiente: 0.16854, caudalRecomendadoMax: 1350 },
-  { id: '70', nombre: '70 mm', coeficiente: 0.03144, caudalRecomendadoMax: 3000, presionTrabajoBar: 15, presionRoturaBar: 50 },
-  { id: '70hr', nombre: '70 mm (alta resistencia / HR)', coeficiente: 0.03144, caudalRecomendadoMax: 3000, presionTrabajoBar: 50, presionRoturaBar: 120 },
+  { id: '70', nombre: '70 mm (genérica)', coeficiente: 0.03144, caudalRecomendadoMax: 3000, presionTrabajoBar: 15, presionRoturaBar: 50 },
+  { id: '70-blindex', nombre: '70 mm BLINDEX', coeficiente: 0.03144, caudalRecomendadoMax: 3000, presionTrabajoBar: 25, presionRoturaBar: 50 },
+  { id: '70-gomdur', nombre: '70 mm GOMDUR 4K', coeficiente: 0.03144, caudalRecomendadoMax: 3000, presionTrabajoBar: 17, presionRoturaBar: 50 },
+  // GOMTEX en este diámetro es en realidad de 75,5 mm (no 70 mm exactos): coeficiente propio extrapolado con el mismo ajuste d^-5 que el resto de diámetros sin tabla oficial.
+  { id: '75-gomtex', nombre: '75 mm GOMTEX', coeficiente: 0.022268, caudalRecomendadoMax: 3200, presionTrabajoBar: 20, presionRoturaBar: 62 },
+  { id: '70hr', nombre: '70 mm H-RISE GOMTEX (alta resistencia)', coeficiente: 0.03144, caudalRecomendadoMax: 3000, presionTrabajoBar: 50, presionRoturaBar: 120 },
   { id: '80', nombre: '80 mm', coeficiente: 0.016075, caudalRecomendadoMax: 3500 },
   { id: '100', nombre: '100 mm (rígida/semirrígida)', coeficiente: 0.0052669, caudalRecomendadoMax: 6000 },
   { id: '150', nombre: '150 mm (Storz 6" / rígida)', coeficiente: 0.0006936, caudalRecomendadoMax: 12000 },
