@@ -281,10 +281,14 @@ function EditorNodo({ nodo, onChange, diametrosPrimerTramo, titulo }) {
 
       {!nodo.bifurcacion && (
         <>
-          <label className="calc-checkbox">
-            <input type="checkbox" checked={nodo.usarSideinfo} onChange={(e) => onChange({ ...nodo, usarSideinfo: e.target.checked })} />
-            Lanza reguladora SIDEINFO aquí
-          </label>
+          <label>¿Qué hay en la punta de esta salida?</label>
+          <select
+            value={nodo.usarSideinfo ? 'sideinfo' : 'abierta'}
+            onChange={(e) => onChange({ ...nodo, usarSideinfo: e.target.value === 'sideinfo' })}
+          >
+            <option value="abierta">Manguera / lanza abierta (sin regular presión)</option>
+            <option value="sideinfo">Lanza reguladora SIDEINFO</option>
+          </select>
           {nodo.usarSideinfo && (
             <select value={nodo.boquillaMM} onChange={(e) => onChange({ ...nodo, boquillaMM: Number(e.target.value) })}>
               {boquillasSideinfo.map((b) => (
@@ -725,7 +729,7 @@ export default function CalculadoraHidraulica() {
                     {hojasUI[i].etiqueta}: {h.caudalLMin} l/min
                     {hojasUI[i].nodo.usarSideinfo
                       ? ` · boquilla ${hojasUI[i].nodo.boquillaMM} mm → ${h.presionBoquillaBar} bar, alcance ${h.alcanceBoquillaM} m`
-                      : ' (manguera abierta, sin lanza)'}
+                      : ' (lanza/manguera abierta)'}
                   </li>
                 ))}
               </ul>
